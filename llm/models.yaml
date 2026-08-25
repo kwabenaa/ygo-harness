@@ -18,24 +18,22 @@
 # are near-forced, which is the whole reason for splitting the roles.
 
 executor:
-  # Mechanical decisions, and plan steps the tracker could not take on its own.
+  # Mechanical decisions, and plan steps the tracker could not take alone.
   #
-  # Same model as the planner, deliberately. Two different models cannot share
-  # a prompt cache at all - different providers, different caches - so a split
-  # across families gives up the cached prefix on every executor call. One
-  # family, one cache.
+  # Same model and the same thinking setting as the planner, deliberately.
+  # Two families cannot share a prompt cache, and two different thinking
+  # settings make a comparison measure two things at once.
   #
-  # Reasoning off. Measured: `reasoning: {enabled: false}` answers in 0.6s with
-  # the actual content; with reasoning on and a small max_tokens the model
-  # spends the whole budget thinking and returns *nothing*, which is the
-  # truncation failure in miniature. `reasoning: {max_tokens: 0}` is a 400 -
-  # do not use it.
+  # Thinking is left at the model's default - no `reasoning` block at all.
+  # An explicit budget is what broke qwen: the agent passed
+  # `reasoning: {max_tokens: 1024}` while this role capped output at 64, and
+  # Alibaba rejected it outright - "max_completion_tokens [64] must be greater
+  # than thinking_budget [1024]". mistral-nemo had silently ignored the
+  # parameter because it does not think at all.
   model: qwen/qwen3.7-flash
-  preset: openrouter
-  max_tokens: 64
-  reasoning:
-    enabled: false
-  # measured: 0.6s, content returned (mistral-nemo was 0.8s, 2 output tokens)
+  # Room for the thinking *and* the answer. A thinking model given 64 tokens
+  # spends them all reasoning and returns empty content.
+  max_tokens: 8192
 
 planner:
   # Turn start, after every opponent interruption, and - since the menu-shape

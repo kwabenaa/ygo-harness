@@ -175,11 +175,12 @@ class LLMAgent:
         # never asked about. Seeded, so a duel stays reproducible.
         from agents.random_legal import RandomLegal
         self.mechanical = RandomLegal(seed=viewer)
-        #: Reasoning budget for a single decision. The thinking that matters
-        #: happens once, at plan time, and that call stays unbounded; spending
-        #: the same budget again on every step turned a puzzle into fourteen
-        #: minutes and bought nothing the plan had not already worked out.
-        self.decision_reasoning = {"max_tokens": 1024}
+        #: Reasoning budget for a single decision. None means "whatever the
+        #: model does by default", which is the only setting that is the same
+        #: across providers - an explicit budget has to be checked against
+        #: each model's own output cap, and getting that wrong is a hard 400
+        #: rather than a degradation.
+        self.decision_reasoning = None
         #: A line to lethal, written once per turn and carried into every
         #: decision that turn.
         self.plan = ""
