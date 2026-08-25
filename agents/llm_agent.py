@@ -72,14 +72,25 @@ class LLMAgent:
     """Policy callable compatible with Duel.run()."""
 
     def __init__(self, provider, db, deck_codes: list[int], *, viewer: int = 0,
-                 verbose: bool = False):
+                 verbose: bool = False, system: str | None = None):
         self.p = provider
         self.db = db
-        self.system = system_prompt(db, deck_codes)
+        #: Callers with a different framing - a puzzle rather than a duel -
+        #: pass their own system prompt; it is still built once and reused,
+        #: which is what keeps the cached prefix intact.
+        self.system = system if system is not None else system_prompt(db, deck_codes)
         self.viewer = viewer
         self.verbose = verbose
         self.stats = Stats()
         self.history: list[str] = []
+        # Correct-but-unthinking answers for the decision types the model is
+        # never asked about. Seeded, so a duel stays reproducible.
+        from agents.random_legal import RandomLegal
+        self.mechanical = RandomLegal(seed=viewer)
+        #: Every decision, as the model saw it. This is the whole prompt body
+        #: - board, hand, legal actions - plus the reply, so a transcript
+        #: shows the harness's translation rather than a summary of it.
+        self.trace: list[dict] = []
 
     # ------------------------------------------------------------ helpers
 
@@ -93,13 +104,18 @@ class LLMAgent:
             n_options=n_options,
         )
         self.stats.asked += 1
+        step = {"n": self.stats.asked, "shown": body, "reply": "", "chose": None,
+                "model": getattr(self.p, "model", "?")}
+        self.trace.append(step)
         try:
             reply = self.p.complete(self.system, body)
         except Exception as e:                     # network/provider failure
             self.stats.fallbacks += 1
+            step["reply"] = f"<provider error: {type(e).__name__}: {e}>"
             if self.verbose:
                 print(f"  [provider error: {type(e).__name__}: {e}]")
             return 0
+        step["reply"] = reply
 
         m = _NUM.search(reply)
         if not m:
@@ -114,6 +130,7 @@ class LLMAgent:
                 print(f"  [out of range: {idx} not in 0..{n_options-1}]")
             return 0
         self.stats.choices.append(idx)
+        step["chose"] = idx
         if self.verbose:
             print(f"  [chose {idx}] {reply[:100]}")
         return idx
@@ -197,4 +214,9 @@ class LLMAgent:
             return SelectPosition.encode(pos[0] if pos else 0x1)
         if msg.id in (MSG_SELECT_EFFECTYN, MSG_SELECT_YESNO):
             return struct.pack("<i", 1)               # yes
-        return struct.pack("<i", 0)
+
+        # Everything else is mechanical - sort orders, sum selections, the
+        # announce family. Answering 0 is wrong for most of them and shows up
+        # as an endless MSG_RETRY, so hand them to the baseline policy, which
+        # holds the real encoders.
+        return self.mechanical(msg, duel)

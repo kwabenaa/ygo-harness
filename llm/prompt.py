@@ -74,3 +74,37 @@ def decision_prompt(state_text: str, *, history: list[str] | None = None,
     else:
         parts.append("Reply with only the number of your chosen action.")
     return "\n\n".join(parts)
+
+
+PUZZLE_PRIMER = """\
+This is a Yu-Gi-Oh PUZZLE, not a normal duel. Read this carefully - it changes
+what a good move is.
+
+- The board and both hands are FIXED. Nothing was drawn and nothing is random.
+- You must WIN THIS TURN. At the end of this turn you automatically lose, so
+  passing, setting up for later, or preserving resources is always wrong.
+- There is a solution. Every card on the field and in your hand is there for a
+  reason; a line that leaves cards unused is usually the wrong line.
+- Spend everything. Life points, materials, and cards in hand have no value
+  after this turn.
+- Your opponent will not meaningfully act. Play as if uninterrupted.
+"""
+
+
+def puzzle_system_prompt(db, codes: list[int], objective: str = "") -> str:
+    """The stable half for a puzzle: rules, the puzzle framing, card text.
+
+    Same caching argument as `system_prompt` - built once per puzzle and never
+    rebuilt - but the goal is different enough that reusing the duel primer
+    would actively mislead. A duel rewards banking resources; a puzzle
+    punishes it, because the turn ends in a loss.
+    """
+    goal = f"\nYour objective: {objective}\n" if objective else ""
+    return (
+        RULES_PRIMER
+        + "\n\n## This is a puzzle\n\n"
+        + PUZZLE_PRIMER
+        + goal
+        + "\n## Cards in this puzzle\n\n"
+        + card_corpus(db, codes)
+    )

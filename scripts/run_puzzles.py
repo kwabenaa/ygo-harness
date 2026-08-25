@@ -27,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agents.random_legal import RandomLegal
+from engine.carddb import CardDB
 from engine.duel import Duel
 from engine.puzzle import iter_puzzles
 
@@ -39,6 +40,39 @@ SOLVED, UNSOLVED, STALLED, ERROR, SKIPPED = (
 )
 #: Outcomes that indict the harness rather than the policy.
 HARNESS_FAULTS = (STALLED, ERROR)
+
+
+def write_transcript(path: Path, puzzle, result: dict, trace: list) -> None:
+    """A readable record of the harness's translation, decision by decision.
+
+    Deliberately dumps the prompt body verbatim rather than summarising it.
+    The point of reading one of these is to see what the model actually got -
+    a summary would hide exactly the rendering bugs worth finding.
+    """
+    lines = [
+        f"# {puzzle.name}",
+        f"file:      {puzzle.path.name}",
+        f"objective: {puzzle.objective or '(none stated)'}",
+        f"ruleset:   Master Rule {puzzle.rule}",
+        f"life:      you {puzzle.lp.get(0, '?')}  /  opponent {puzzle.lp.get(1, '?')}",
+        f"outcome:   {result['outcome'].upper()}  ({result.get('detail') or 'played to a verdict'})",
+        f"decisions: {result.get('asked', 0)}",
+        "",
+    ]
+    if puzzle.message:
+        lines += ["## Puzzle text", "", puzzle.message, ""]
+    for step in trace:
+        lines += [
+            "=" * 72,
+            f"DECISION {step['n']}   (model: {step['model']})",
+            "=" * 72,
+            step["shown"],
+            "",
+            f"--> model replied: {step['reply'].strip()[:400]!r}",
+            f"--> harness took option: {step['chose']}",
+            "",
+        ]
+    path.write_text("\n".join(lines))
 
 
 def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
@@ -86,7 +120,16 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
         unhandled: Counter = Counter()
         for pol in (p0, p1):
             unhandled.update(getattr(pol, "unhandled", {}) or {})
+            inner = getattr(pol, "mechanical", None)
+            if inner is not None:
+                unhandled.update(getattr(inner, "unhandled", {}) or {})
         result["unhandled"] = dict(unhandled)
+        stats = getattr(p0, "stats", None)
+        if stats is not None:
+            result["asked"] = stats.asked
+            result["fallbacks"] = (stats.fallbacks + stats.unparseable
+                                   + stats.out_of_range)
+        result["_trace"] = getattr(p0, "trace", [])
     except Exception as exc:                        # noqa: BLE001 - reported, not swallowed
         result.update(outcome=ERROR, detail=f"{type(exc).__name__}: {exc}"[:200])
     finally:
@@ -100,23 +143,54 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--agent", default="random", choices=["random"],
-                    help="policy to solve with (random costs nothing and is "
-                         "the right one for finding decoder bugs)")
+    ap.add_argument("--agent", default="random", choices=["random", "llm"],
+                    help="random costs nothing and is the right one for "
+                         "finding decoder bugs; llm actually tries to solve")
+    ap.add_argument("--rule", type=int, default=None,
+                    help="only puzzles declaring this Master Rule")
     ap.add_argument("--root", default=None, help="puzzle directory")
     ap.add_argument("--filter", default=None, help="substring match on filename")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-steps", type=int, default=MAX_STEPS)
     ap.add_argument("--json", default=None, help="write full results here")
+    ap.add_argument("--transcript", default=None, metavar="DIR",
+                    help="write one readable file per puzzle showing exactly "
+                         "what the agent was shown and what it chose")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
-    def make_policy(player: int):
-        return RandomLegal(seed=args.seed + player * 1000)
+    db = CardDB() if args.agent == "llm" else None
+
+    def policy_factory(puzzle):
+        """Build the pair of policies for one puzzle.
+
+        The solver is always player 0; player 1 stays random, because a puzzle
+        opponent is not supposed to be playing - most of these set
+        DUEL_SIMPLE_AI and the duel ends before the opponent's turn.
+        """
+        if args.agent == "random":
+            return lambda player: RandomLegal(seed=args.seed + player * 1000)
+
+        from agents.hierarchical import HierarchicalAgent
+        from llm.provider import from_config
+        from llm.prompt import puzzle_system_prompt
+
+        codes = sorted({c.code for c in puzzle.cards})
+        system = puzzle_system_prompt(db, codes, puzzle.objective)
+
+        def build(player: int):
+            if player == 1:
+                return RandomLegal(seed=args.seed + 1000)
+            return HierarchicalAgent(
+                from_config("planner"), from_config("executor"), db, codes,
+                viewer=0, system=system, verbose=args.verbose,
+            )
+        return build
 
     puzzles = [p for p in iter_puzzles(args.root)
-               if not args.filter or args.filter.lower() in p.path.name.lower()]
+               if (not args.filter or args.filter.lower() in p.path.name.lower())
+               and (args.rule is None or p.rule == args.rule)]
     if args.limit:
         puzzles = puzzles[:args.limit]
     if not puzzles:
@@ -128,7 +202,12 @@ def main() -> int:
     missing_total: Counter = Counter()
 
     for i, puz in enumerate(puzzles, 1):
-        r = run_one(puz, make_policy, args.max_steps)
+        r = run_one(puz, policy_factory(puz), args.max_steps)
+        trace = r.pop("_trace", [])
+        if args.transcript and trace:
+            tdir = Path(args.transcript)
+            tdir.mkdir(parents=True, exist_ok=True)
+            write_transcript(tdir / f"{puz.path.stem}.txt", puz, r, trace)
         results.append(r)
         tally[r["outcome"]] += 1
         unhandled_total.update(r["unhandled"])
