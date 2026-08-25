@@ -17,7 +17,8 @@ from . import ocgapi as api
 from .carddb import CardDB, ScriptProvider
 from .constants import (
     DECISION_MESSAGES, LOCATION_DECK, LOCATION_EXTRA, MASTER_RULE_5,
-    MSG_NAMES, MSG_RETRY, MSG_WIN, POS_FACEDOWN_DEFENSE,
+    MSG_CHAINING, MSG_CHAIN_END, MSG_NAMES, MSG_NEW_TURN, MSG_RETRY, MSG_WIN,
+    POS_FACEDOWN_DEFENSE,
 )
 
 
@@ -30,6 +31,19 @@ class Message:
     @property
     def name(self) -> str:
         return MSG_NAMES.get(self.id, f"MSG_{self.id}")
+
+    @property
+    def player(self) -> int | None:
+        """Whose decision this is.
+
+        Every MSG_SELECT_* writes playerid as the first payload byte
+        (playerop.cpp), which is what lets one duel run two different
+        policies - needed for any agent-vs-baseline match.
+        """
+        if self.id in DECISION_MESSAGES and self.payload:
+            v = self.payload[0]
+            return v if v in (0, 1) else None
+        return None
 
     def __repr__(self) -> str:
         return f"<{self.name} {len(self.payload)}B>"
@@ -49,12 +63,30 @@ class Duel:
         starting_lp: int = 8000,
         starting_draw: int = 5,
         draw_per_turn: int = 1,
+        load_globals: bool = True,
     ):
         self.lib = lib or api.load()
         self.db = carddb or CardDB()
         self.scripts = scripts or ScriptProvider()
         self.seed = seed
         self.responses: list[bytes] = []
+        #: Messages emitted since the last OCG_DuelProcess.
+        self.last_batch: list[Message] = []
+        #: Messages since the last decision point.
+        self.since_last_decision: list[Message] = []
+        #: Monotonic counters. A policy that wants to act on "a new turn
+        #: started" or "the opponent chained" must compare these against the
+        #: value it last saw, rather than scanning a buffer: OCG_DuelProcess
+        #: emits those messages in an earlier batch than the decision they
+        #: precede, and any intervening decision (a draw-phase chain window,
+        #: say) clears the buffer before the decision that cared about it.
+        self.turn_count = 0
+        self.chain_count = 0
+        self.chain_end_count = 0
+        #: Whose turn it currently is (MSG_NEW_TURN payload is the turn player).
+        self.turn_player: int | None = None
+        #: Player who activated the most recent chain link.
+        self.last_chain_player: int | None = None
         self.log: list[str] = []
         self.missing_scripts: set[str] = set()
 
@@ -83,6 +115,8 @@ class Duel:
         if rc != api.DuelCreation.SUCCESS:
             raise RuntimeError(f"OCG_CreateDuel failed: status {rc}")
         self.handle = handle
+        if load_globals:
+            self.load_globals()
 
     # ------------------------------------------------------------ callbacks
 
@@ -104,6 +138,33 @@ class Duel:
         self.log.append(f"[{log_type}] {msg.decode('utf-8', 'replace')}")
 
     # ------------------------------------------------------------ setup
+
+    #: Shared library scripts, in dependency order. The core never asks for
+    #: these - it only requests cXXXXXXX.lua on demand - so the host must load
+    #: them itself. They cascade: constant.lua pulls in the counter and
+    #: setcode tables, utility.lua pulls in every proc_*.lua.
+    GLOBAL_SCRIPTS = ("constant.lua", "utility.lua")
+
+    def load_globals(self) -> None:
+        """Load the shared scripts that every card script depends on.
+
+        Without these, every card's `local s,id=GetID()` fails with
+        "attempt to call a nil value (global 'GetID')" and the card ends up
+        with no effects at all. The duel still runs - cards can be summoned
+        and set, because those are rules actions - so the failure looks like
+        a game where nothing has an ability rather than like an error.
+        Must run before any card is created: initial_effect fires inside
+        OCG_DuelNewCard.
+        """
+        for name in self.GLOBAL_SCRIPTS:
+            body = self.scripts.read(name)
+            if body is None:
+                raise FileNotFoundError(
+                    f"global script {name} not found - run scripts/fetch_data.sh"
+                )
+            if not self.lib.OCG_LoadScript(self.handle, body, len(body),
+                                           name.encode()):
+                raise RuntimeError(f"OCG_LoadScript failed for {name}")
 
     def add_card(self, code: int, team: int, loc: int, seq: int = 0,
                  pos: int = POS_FACEDOWN_DEFENSE) -> None:
@@ -165,10 +226,12 @@ class Duel:
         self.respond(struct.pack("<i", value))
 
     def run(self, policy, max_steps: int = 100_000,
-            retry_limit: int = 32) -> dict:
+            retry_limit: int = 32, policy1=None) -> dict:
         """Drive the duel to completion.
 
-        `policy(msg, duel) -> bytes` answers every decision point.
+        `policy(msg, duel) -> bytes` answers every decision point. If
+        `policy1` is given, `policy` answers for player 0 and `policy1` for
+        player 1, which is how an agent is matched against a baseline.
 
         The pending decision is tracked *across* iterations: when a response
         is rejected the engine emits MSG_RETRY on its own, with no restatement
@@ -184,7 +247,22 @@ class Duel:
             steps += 1
             status = self.lib.OCG_DuelProcess(self.handle)
             msgs = self._messages()
+            self.last_batch = msgs
+            self.since_last_decision.extend(msgs)
             seen.extend(msgs)
+            for m in msgs:
+                if m.id == MSG_NEW_TURN:
+                    self.turn_count += 1
+                    if m.payload:
+                        self.turn_player = m.payload[0]
+                elif m.id == MSG_CHAINING:
+                    self.chain_count += 1
+                    # code (4 bytes), then a loc_info whose first byte is the
+                    # handler's controller - i.e. who activated.
+                    if len(m.payload) > 4:
+                        self.last_chain_player = m.payload[4]
+                elif m.id == MSG_CHAIN_END:
+                    self.chain_end_count += 1
 
             saw_retry = False
             for m in msgs:
@@ -212,7 +290,11 @@ class Duel:
             if winner is not None or status == api.DuelStatus.END:
                 break
             if status == api.DuelStatus.AWAITING:
-                self.respond(policy(pending, self))
+                who = pending.player if pending is not None else None
+                active = policy1 if (policy1 is not None and who == 1) else policy
+                response = active(pending, self)
+                self.since_last_decision = []
+                self.respond(response)
 
         return {
             "steps": steps,

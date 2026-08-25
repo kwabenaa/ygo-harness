@@ -1,0 +1,133 @@
+"""An LLM policy over the engine's legal-action menu.
+
+The split is deliberate and is the first step toward the hierarchical agent:
+the model is asked only about *strategic* decisions (what to do in the main
+phase, whether to chain), while mechanical ones (which empty zone to place a
+card in, position selection) fall through to a cheap default.
+
+That matters for cost. Roughly 80% of decision points in a duel are mechanical
+and near-forced, and at ~$0.13/1M output tokens the difference between asking
+the model 50 times and 250 times per duel is the difference between a
+leaderboard that fits the budget and one that does not.
+"""
+
+from __future__ import annotations
+
+import re
+import struct
+from dataclasses import dataclass, field
+
+from engine.constants import (
+    MSG_SELECT_BATTLECMD, MSG_SELECT_CARD, MSG_SELECT_CHAIN, MSG_SELECT_DISFIELD,
+    MSG_SELECT_EFFECTYN, MSG_SELECT_IDLECMD, MSG_SELECT_OPTION, MSG_SELECT_PLACE,
+    MSG_SELECT_POSITION, MSG_SELECT_TRIBUTE, MSG_SELECT_UNSELECT_CARD,
+    MSG_SELECT_YESNO, MSG_SORT_CARD,
+)
+from engine.messages import (
+    IdleCmd, SelectCard, SelectPlace, SelectPosition, SelectUnselect, parse_idlecmd,
+    parse_select_card, parse_select_place, parse_select_position,
+)
+from engine.render import render_actions, render_state
+from llm.prompt import decision_prompt, system_prompt
+
+_NUM = re.compile(r"-?\d+")
+
+
+@dataclass
+class Stats:
+    asked: int = 0
+    unparseable: int = 0
+    out_of_range: int = 0
+    fallbacks: int = 0
+    choices: list[int] = field(default_factory=list)
+
+
+class LLMAgent:
+    """Policy callable compatible with Duel.run()."""
+
+    def __init__(self, provider, db, deck_codes: list[int], *, viewer: int = 0,
+                 verbose: bool = False):
+        self.p = provider
+        self.db = db
+        self.system = system_prompt(db, deck_codes)
+        self.viewer = viewer
+        self.verbose = verbose
+        self.stats = Stats()
+        self.history: list[str] = []
+
+    # ------------------------------------------------------------ helpers
+
+    def _ask(self, duel, cmd, n_options: int, turn: int | None = None) -> int:
+        """Ask the model to choose among `n_options`. Returns an index."""
+        body = decision_prompt(
+            render_state(duel, self.db, self.viewer, turn=turn)
+            + "\nACTIONS\n" + render_actions(self.db, cmd),
+            history=self.history,
+        )
+        self.stats.asked += 1
+        try:
+            reply = self.p.complete(self.system, body)
+        except Exception as e:                     # network/provider failure
+            self.stats.fallbacks += 1
+            if self.verbose:
+                print(f"  [provider error: {type(e).__name__}: {e}]")
+            return 0
+
+        m = _NUM.search(reply)
+        if not m:
+            self.stats.unparseable += 1
+            if self.verbose:
+                print(f"  [unparseable reply: {reply[:80]!r}]")
+            return 0
+        idx = int(m.group())
+        if not (0 <= idx < n_options):
+            self.stats.out_of_range += 1
+            if self.verbose:
+                print(f"  [out of range: {idx} not in 0..{n_options-1}]")
+            return 0
+        self.stats.choices.append(idx)
+        if self.verbose:
+            print(f"  [chose {idx}] {reply[:100]}")
+        return idx
+
+    # ------------------------------------------------------------ policy
+
+    def __call__(self, msg, duel) -> bytes:
+        if msg is None:
+            return struct.pack("<i", 0)
+
+        # --- strategic: ask the model -----------------------------------
+        if msg.id == MSG_SELECT_IDLECMD:
+            cmd = parse_idlecmd(msg.payload)
+            acts = cmd.actions()
+            if not acts:
+                return struct.pack("<i", 0)
+            self.viewer = cmd.player
+            i = self._ask(duel, cmd, len(acts))
+            kind, idx, card = acts[i]
+            label = self.db.name(card.code) if card else ""
+            self.history.append(f"you chose: {kind}:{idx} {label}".strip())
+            return IdleCmd.encode(kind, idx)
+
+        # --- mechanical: cheap defaults ---------------------------------
+        if msg.id == MSG_SELECT_BATTLECMD:
+            return struct.pack("<i", 3)               # to end phase
+        if msg.id == MSG_SELECT_CHAIN:
+            return struct.pack("<i", -1)              # decline to chain
+        if msg.id == MSG_SELECT_UNSELECT_CARD:
+            return SelectUnselect.encode(0)
+        if msg.id in (MSG_SELECT_CARD, MSG_SELECT_TRIBUTE):
+            sc = parse_select_card(msg.payload)
+            return SelectCard.encode(list(range(max(sc.min, 1))))
+        if msg.id in (MSG_SELECT_PLACE, MSG_SELECT_DISFIELD):
+            sp = parse_select_place(msg.payload)
+            free = sp.available()
+            if not free:
+                return struct.pack("<i", 0)
+            return SelectPlace.encode([free[0]] * max(sp.count, 1))
+        if msg.id == MSG_SELECT_POSITION:
+            pos = parse_select_position(msg.payload).available()
+            return SelectPosition.encode(pos[0] if pos else 0x1)
+        if msg.id in (MSG_SELECT_EFFECTYN, MSG_SELECT_YESNO):
+            return struct.pack("<i", 1)               # yes
+        return struct.pack("<i", 0)

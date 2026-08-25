@@ -20,8 +20,8 @@ from engine.constants import (
     MSG_SELECT_DISFIELD,
 )
 from engine.messages import (
-    IdleCmd, SelectCard, SelectPlace, SelectUnselect, parse_idlecmd,
-    parse_select_card, parse_select_place,
+    IdleCmd, SelectCard, SelectPlace, SelectPosition, SelectUnselect, parse_idlecmd,
+    parse_select_card, parse_select_place, parse_select_position,
 )
 
 
@@ -72,7 +72,11 @@ class RandomLegal:
             picks = [self.rng.choice(free) for _ in range(max(sp.count, 1))]
             return SelectPlace.encode(picks)
 
-        if msg.id in (MSG_SELECT_OPTION, MSG_SELECT_POSITION, MSG_SORT_CARD):
+        if msg.id == MSG_SELECT_POSITION:
+            pos = parse_select_position(msg.payload).available()
+            return SelectPosition.encode(self.rng.choice(pos) if pos else 0x1)
+
+        if msg.id in (MSG_SELECT_OPTION, MSG_SORT_CARD):
             # Handled generically for now; M1 gives these real decoders.
             self.unhandled[msg.id] = self.unhandled.get(msg.id, 0) + 1
             return struct.pack("<i", 0)

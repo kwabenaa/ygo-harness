@@ -1,0 +1,40 @@
+# Model roles, with the measurements that chose them.
+#
+# Latency on qwen3.7-flash is close to linear in reasoning tokens:
+# roughly 10ms per reasoning token plus ~0.8s of fixed overhead. So the
+# reasoning budget is a predictable latency dial, and a *bounded budget* is
+# the right knob - not an effort level.
+#
+#   budget    p50     max     out
+#   default   12.8s   15.6s   1331
+#   low       11.8s   13.4s   1424   <- slower than default; do not use
+#   512       5.6s    6.0s     518
+#   256       3.1s    3.7s     262   <- planner
+#   128       2.1s    2.3s     134
+#   off       0.9s    1.4s       1
+#
+# At budgets 32-256 qwen chose the same actions mistral-nemo chose with no
+# reasoning at all, on the decision points tested. Most decisions in a duel
+# are near-forced, which is the whole reason for splitting the roles.
+
+executor:
+  # The ~80% of decisions that are mechanical or near-forced.
+  model: mistralai/mistral-nemo
+  preset: openrouter
+  max_tokens: 64
+  # measured: 0.8s, 2 output tokens
+
+planner:
+  # Turn start and after every opponent interruption.
+  model: qwen/qwen3.7-flash
+  preset: openrouter
+  max_tokens: 2048
+  reasoning:
+    max_tokens: 256
+  # measured: 3.1s p50, 3.7s max, 262 output tokens
+
+smoke:
+  # Free, for plumbing tests that should cost nothing.
+  model: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+  preset: openrouter
+  max_tokens: 2048

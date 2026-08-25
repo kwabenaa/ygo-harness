@@ -221,3 +221,48 @@ class SelectUnselect:
     @staticmethod
     def finish() -> bytes:
         return struct.pack("<i", -1)
+
+
+@dataclass
+class SelectPosition:
+    """MSG_SELECT_POSITION - which battle position to summon in.
+
+    `positions` is a bitmask of allowed positions. The response must be a
+    single bit that is set in that mask; a zero response is never valid,
+    which is a quiet way to loop forever on MSG_RETRY.
+    """
+    player: int
+    code: int
+    positions: int
+
+    #: Preference order when nothing smarter is available. Face-up attack is
+    #: the usual default for a summon.
+    PREFERENCE = (0x1, 0x4, 0x8, 0x2)   # up-ATK, up-DEF, down-DEF, down-ATK
+
+    def available(self) -> list[int]:
+        return [p for p in self.PREFERENCE if self.positions & p]
+
+    @staticmethod
+    def encode(position: int) -> bytes:
+        return struct.pack("<i", position)
+
+
+def parse_select_position(payload: bytes) -> SelectPosition:
+    r = _Reader(payload)
+    return SelectPosition(r.u8(), r.u32(), r.u8())
+
+
+@dataclass
+class SelectOption:
+    """MSG_SELECT_OPTION - pick among a card's alternative effects."""
+    player: int
+    count: int
+
+    @staticmethod
+    def encode(index: int) -> bytes:
+        return struct.pack("<i", index)
+
+
+def parse_select_option(payload: bytes) -> SelectOption:
+    r = _Reader(payload)
+    return SelectOption(r.u8(), r.u8())
