@@ -162,9 +162,22 @@ acts on the index the agent returns rather than the name.
 ### Where the agent actually is
 
 ```
-Master Rule 5 puzzles:  1 / 20 solved     (random-legal: 0 / 20)
+Master Rule 5 puzzles:  2 / 20 solved     (random-legal: 0 / 20)
                        20 / 20 run clean
 ```
+
+The second was `Home of the Fiends`, and getting there took four fixes that
+were all the same fix: state the engine reported and the harness discarded.
+The agent was never told which phase of the turn it was in, so it planned an
+attack from Main Phase 2 and declined a free direct attack to carry it out.
+The graveyard was truncated to six cards, the banished pile was never shown,
+and the Extra Deck was a count rather than a list. Its plans were also never
+checked against the opponent's life total, which the engine knows - so it
+executed a line that dealt 200 into 2400.
+
+Fixed, it finds the intended solution: clear both monsters, Normal Summon,
+Monster Reincarnation to retrieve Dark Necrofear from the graveyard, Special
+Summon it, and attack for lethal.
 
 Card text and full stats, field zones, battle position, engine events and
 all-planner routing have each been fixed, and **none of them moved the solve

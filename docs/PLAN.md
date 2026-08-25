@@ -617,11 +617,27 @@ Fixed, plus turn structure in the primer. The effect on play was immediate:
 | damage dealt | 0 | **200** |
 | summoned before the Battle Phase | no | **yes** |
 
-Still unsolved - 200 of the 2400 needed - but the opponent's life total moved
-for the first time in any run of this puzzle, and the reasoning now says "I am
-currently in Battle Phase" rather than guessing. The lesson is the one this
-codebase keeps relearning: check what the agent was actually shown before
-concluding anything about how it thinks.
+That left it planning legal lines that were never enough - 200 damage into a
+2400 life total. Three more zones turned out to be read from the engine and
+discarded before the agent saw them: the graveyard truncated to its last six
+cards, the banished pile never rendered at all, and the Extra Deck reduced to
+a count. And the plan was never held against the number it had to reach, which
+the engine knows.
+
+**With those four fixed, the agent solved the puzzle.**
+
+    Raigeki Break -> destroy one Dark Jeroid
+    Back to Square One -> return the other to the Deck
+    Normal Summon Zanki
+    Monster Reincarnation -> add Dark Necrofear from the graveyard
+    Special Summon Dark Necrofear
+    Battle Phase -> attack with Dark Necrofear and Zanki
+
+That is the intended solution, and the graveyard is where it lives. The lesson
+is the one this codebase keeps relearning, now three times over: **check what
+the agent was actually shown before concluding anything about how it thinks.**
+Every one of these looked like a reasoning failure and every one was a piece of
+the game state we had read from the engine and then thrown away.
 
 **Working protocol.** A full Master Rule 5 run is ~30 minutes and several
 hundred calls, and answers a question one puzzle already answers. Iterate on
