@@ -260,3 +260,52 @@ def test_modified_stats_are_shown_as_modified():
                    rank=4, overlay=(11, 22))
     label = monster_label(FakeDB(), xyz, reveal=True)
     assert "Rk4" in label and "2 materials" in label, label
+
+
+def test_select_card_candidates_are_real_cards():
+    """Every card offered in a selection must resolve to a real card.
+
+    MSG_SELECT_CARD writes a uint32 code followed by a full 10-byte loc_info
+    per entry. Skipping 4 bytes instead of 10 desynchronised the list, so
+    every candidate after the first was read out of the middle of the previous
+    entry's location blob. Nothing raised - the agent picked an index, and the
+    engine acts on the index rather than the name, so the duel ran on with the
+    agent reasoning about cards that were not there.
+
+    Asserting the codes resolve is the check that catches it: garbage codes
+    are not in the database. The payloads come from the engine, not from us.
+    """
+    from engine.carddb import CardDB
+    from engine.constants import MSG_SELECT_CARD
+    from engine.messages import parse_select_card
+    from agents.random_legal import RandomLegal
+
+    db = CardDB()
+    puzzle = next((p for p in iter_puzzles()
+                   if p.path.name == "Banyspy_03_Absolute_Defense.lua"), None)
+    if puzzle is None:
+        pytest.skip("pinned puzzle not present")
+
+    seen, bad = 0, []
+
+    class Watch:
+        def __init__(self, seed):
+            self.inner = RandomLegal(seed=seed)
+
+        def __call__(self, msg, duel):
+            nonlocal seen
+            if msg is not None and msg.id == MSG_SELECT_CARD:
+                sc = parse_select_card(msg.payload)
+                assert len(sc.places) == len(sc.codes)
+                for code in sc.codes:
+                    seen += 1
+                    if db.name(code).startswith("<"):
+                        bad.append(code)
+            return self.inner(msg, duel)
+
+    with Duel.from_puzzle(puzzle) as duel:
+        duel.start()
+        duel.run(Watch(0), max_steps=30_000, policy1=Watch(1000))
+
+    assert seen, "no card selection was ever reached - the test proves nothing"
+    assert not bad, f"{len(bad)} of {seen} candidates are not real cards: {bad[:5]}"

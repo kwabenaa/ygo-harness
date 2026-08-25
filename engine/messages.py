@@ -131,6 +131,10 @@ class SelectCard:
     min: int
     max: int
     codes: list[int]
+    #: Where each candidate is, as (controller, location, sequence). Adding a
+    #: card from the Deck, reviving one from the GY and returning one from
+    #: banishment are different plays, and the list mixes them freely.
+    places: list[tuple[int, int, int]] = None  # type: ignore[assignment]
 
     @staticmethod
     def encode(indices: list[int]) -> bytes:
@@ -148,19 +152,31 @@ class SelectCard:
 
 
 def parse_select_card(payload: bytes) -> SelectCard:
+    """Layout: player, cancelable, min, max, count, then per card a uint32
+    code followed by a full loc_info.
+
+    loc_info is **10 bytes** - uint8 controller, uint8 location, uint32
+    sequence, uint32 position - not 4. Skipping 4 desynchronised the list
+    after the first entry, so every candidate past the first was read from the
+    middle of the previous card's location blob. It did not raise: the agent
+    was shown a menu of cards that were not the cards on offer, chose an index
+    into it, and the engine acted on the index rather than on the name, so the
+    duel continued and only the reasoning was nonsense.
+    """
     r = _Reader(payload)
     player, cancelable = r.u8(), bool(r.u8())
     mn, mx, count = r.u32(), r.u32(), r.u32()
-    # Each entry is a code plus an info_location blob; we only need codes for
-    # now, and the blob width varies, so stop parsing after the counts.
-    codes = []
+    codes, places = [], []
     try:
         for _ in range(count):
             codes.append(r.u32())
-            r.off += 4  # info_location
+            con, loc = r.u8(), r.u8()
+            seq = r.u32()
+            r.u32()                       # position
+            places.append((con, loc, seq))
     except (IndexError, struct.error):
         pass
-    return SelectCard(player, cancelable, mn, mx, codes)
+    return SelectCard(player, cancelable, mn, mx, codes, places)
 
 
 @dataclass

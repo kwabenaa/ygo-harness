@@ -30,6 +30,7 @@ from engine.messages import (
     parse_select_place, parse_select_position,
 )
 from engine.render import render_actions, render_state, zone_label
+from llm.events import recent as recent_events
 from llm.prompt import decision_prompt, system_prompt
 
 _NUM = re.compile(r"-?\d+")
@@ -125,10 +126,15 @@ class LLMAgent:
     def _ask(self, duel, cmd, n_options: int, turn: int | None = None,
              menu_names: dict | None = None) -> int:
         """Ask the model to choose among `n_options`. Returns an index."""
+        # What the engine reported since we last acted, then what we did.
+        # Board state cannot express either: an effect being negated, a card
+        # being revealed, or a coin landing tails all leave a board that looks
+        # like any other board.
+        events = self.history[-6:] + recent_events(duel, self.db, self.viewer)
         body = decision_prompt(
             render_state(duel, self.db, self.viewer, turn=turn)
             + "\nACTIONS\n" + render_actions(self.db, cmd, names=menu_names),
-            history=self.history,
+            history=events,
             n_options=n_options,
         )
         self.stats.asked += 1
