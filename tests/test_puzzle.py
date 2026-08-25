@@ -508,3 +508,36 @@ def test_plan_tracker_says_when_a_step_is_unreachable():
     rendered = tracker.render(["to battle phase", "to end phase"])
     assert "NOT available" in rendered, rendered
     assert "the plan is dead" in rendered, rendered
+
+
+def test_a_single_option_is_never_sent_to_the_model():
+    """A menu with one option is not a decision.
+
+    Asking anyway cost a full model call - at unbounded reasoning, tens of
+    seconds - to be told the only thing that could be said. Across a puzzle
+    that is minutes spent on questions with one answer.
+    """
+    from agents.llm_agent import LLMAgent
+    from engine.carddb import CardDB
+
+    class CountingProvider:
+        model = "stub"
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, system, user, **kw):
+            self.calls += 1
+            return "0"
+
+    provider = CountingProvider()
+    agent = LLMAgent(provider, CardDB(), [], system="stub")
+
+    class OneOption:
+        def actions(self):
+            return [(7, 0, None)]
+
+    # duel is only touched when a call is actually made, so None is safe here.
+    assert agent._ask(None, OneOption(), 1) == 0
+    assert provider.calls == 0, "asked the model a question with one answer"
+    assert agent.stats.forced == 1

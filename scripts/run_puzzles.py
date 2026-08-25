@@ -174,6 +174,7 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["truncated"] = stats.truncated
             result["reasked"] = stats.unparseable + stats.out_of_range
             result["no_plan"] = stats.no_plan
+            result["forced"] = stats.forced
             tracker = getattr(p0, "tracker", None)
             if tracker is not None:
                 result["skipped_ahead"] = tracker.skipped_ahead
@@ -217,9 +218,9 @@ def main() -> int:
                          "what the agent was shown and what it chose")
     ap.add_argument("--no-plan", action="store_true",
                     help="skip the per-turn planning call")
-    ap.add_argument("--cheap", action="store_true",
-                    help="use the normal duel routing instead of sending every "
-                         "puzzle decision to the planner")
+    ap.add_argument("--all-planner", action="store_true",
+                    help="send every puzzle decision to the planner. Slow, and "
+                         "measured not to change the plan - kept for comparison")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -253,7 +254,13 @@ def main() -> int:
                 # every choice is irreversible and there is no later turn to
                 # recover in, so the turn-start edge would fire once and hand
                 # the whole solve to the cheap model.
-                split=Deliberation(always=not args.cheap),
+                # Not every decision. The expensive thinking belongs at plan
+                # time, and routing all of it to the planner as well turned
+                # one puzzle into fourteen minutes while the plan - which is
+                # where the reasoning actually lives - was unchanged by it.
+                # The menu-shape triggers still send interrupt windows,
+                # activation choices and wide menus to the planner.
+                split=Deliberation(always=args.all_planner),
                 # One long think about the whole line before the first
                 # action. A combo cannot be re-derived one decision at a
                 # time: step three looks pointless unless you already know
@@ -320,6 +327,9 @@ def main() -> int:
         # so a run full of forced defaults measures the fallback, not the
         # model - and it looks exactly like an agent playing badly.
         print(f"  re-asked for a bare number {forced}")
+        skipped_trivial = sum(r.get("forced", 0) for r in results)
+        if skipped_trivial:
+            print(f"  single-option, not asked {skipped_trivial}")
         blind = sum(r.get("no_plan", 0) for r in results)
         unchecked = sum(r.get("unchecked_plans", 0) for r in results)
         if blind:

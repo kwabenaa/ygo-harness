@@ -122,6 +122,8 @@ class Stats:
     #: re-ask also fails the duel is abandoned, not answered on the model's
     #: behalf - see NoAnswer.
     reasked: int = 0
+    #: Decisions with a single legal answer, taken without asking the model.
+    forced: int = 0
     #: Turns played with no plan at all. Never silent: a missing plan is not a
     #: decision to improvise, it is the planning call having failed.
     no_plan: int = 0
@@ -151,6 +153,11 @@ class LLMAgent:
         # never asked about. Seeded, so a duel stays reproducible.
         from agents.random_legal import RandomLegal
         self.mechanical = RandomLegal(seed=viewer)
+        #: Reasoning budget for a single decision. The thinking that matters
+        #: happens once, at plan time, and that call stays unbounded; spending
+        #: the same budget again on every step turned a puzzle into fourteen
+        #: minutes and bought nothing the plan had not already worked out.
+        self.decision_reasoning = {"max_tokens": 1024}
         #: A line to lethal, written once per turn and carried into every
         #: decision that turn.
         self.plan = ""
@@ -275,6 +282,13 @@ class LLMAgent:
         # Board state cannot express either: an effect being negated, a card
         # being revealed, or a coin landing tails all leave a board that looks
         # like any other board.
+        # A menu with one option is not a decision. Asking anyway cost a full
+        # model call - at unbounded reasoning, tens of seconds - to be told
+        # the only thing that could be said.
+        if n_options <= 1:
+            self.stats.forced += 1
+            return 0
+
         events = self.history[-6:] + recent_events(duel, self.db, self.viewer)
         self._ensure_plan(duel, turn)
         menu_labels = self._labels(cmd, menu_names)
@@ -295,7 +309,8 @@ class LLMAgent:
         reply, last_error = "", None
         for attempt in range(PROVIDER_ATTEMPTS):
             try:
-                reply = self.p.complete(self.system, body)
+                reply = self.p.complete(self.system, body,
+                                        reasoning=self.decision_reasoning)
                 break
             except Exception as e:                 # network/provider failure
                 last_error = e
