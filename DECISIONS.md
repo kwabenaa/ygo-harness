@@ -5,6 +5,67 @@ deliberately put off. Newest first.
 
 ---
 
+## Puzzles are a debug tool; the sealed splits stay the benchmark
+
+**Status:** decided.
+
+EDOPro's puzzle collection gives something this project otherwise has to build
+an entire search layer to get: **ground truth the engine computes itself**.
+`aux.BeginPuzzle()` registers an `EVENT_TURN_END` effect that zeroes the
+solver's life points, so failing to win the turn *is* losing. Binary,
+verifiable, free.
+
+It was tempting to promote that to the benchmark. Declined, because a puzzle
+has no live opponent — `DUEL_SIMPLE_AI`, and the duel ends before the
+opponent's turn ever arrives. Puzzles measure single-turn combo execution;
+the thesis is resource management under interruption. Scoring the project on
+puzzles would be measuring the thing that was easy to measure.
+
+So: puzzles live alongside `agents/` as a stress test and a development
+target, tuning against them is legitimate, and `bench/` stays sealed for the
+Sky Striker splits, which are built after the puzzles are solved.
+
+The collection is pinned in `data/DATA_COMMITS` like the card data. Reading
+whatever the EDOPro install happens to hold is not reproducible, and the
+install updates itself on launch (trap 11).
+
+---
+
+## The agent is a network client, not a host
+
+**Status:** supersedes the transport shape assumed in "Deferred: YGOPro
+network transport" below. The deferral itself still stands until the puzzle
+work is done.
+
+Measured against the installed client rather than reasoned about:
+`config/system.conf` sets `serverport = 7911`, and `WindBot.exe` contains
+`CtosMessage`/`StocMessage` classes. **EDOPro hosts the room; WindBot joins it
+as a client.** EDOPro's "Add AI player" button launches a WindBot into that
+slot. Our agent takes the same slot by connecting to `127.0.0.1:7911` — so we
+implement the *client* half, and the user hosts a LAN game normally rather
+than clicking "Add AI player".
+
+Two consequences:
+
+- **The core belongs to EDOPro during a networked duel**, so there is no
+  `OCG_DuelQuery` for us. This looked like it would force the shadow state
+  machine the conventions forbid. It does not: the server pushes query buffers
+  as `MSG_UPDATE_DATA` (6) and `MSG_UPDATE_CARD` (7), in the same TLV format
+  `engine/board.py` already parses. Reuse that parser.
+- **Our `.yrp` export does not apply** to a networked duel — EDOPro writes its
+  own replay, which `scripts/verify_yrp.py` can already read. Offline scoring
+  of a networked duel goes through EDOPro's replay, not ours.
+
+**WindBot as a baseline is cheaper than assumed, with two real blockers.** The
+install ships 43 bots across 50 decks, already built — no C# compilation. But
+`WindBot.exe` is a Windows PE32 .NET assembly launched through Mono
+(`config/configs.json` puts `/Library/Frameworks/Mono.framework` on the path),
+and Mono is not installed here. And because WindBot is a *client*, an
+agent-vs-WindBot match with no human in it needs a **server** — a second
+protocol implementation. Revisit only after human-vs-agent works.
+
+---
+
 ## .yrp export works in EDOPro
 
 **Status:** closed. Two format bugs found and fixed; confirmed in the client.

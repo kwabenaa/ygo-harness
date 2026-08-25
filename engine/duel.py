@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ctypes as C
 import random
+import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,7 +19,7 @@ from .carddb import CardDB, ScriptProvider
 from .constants import (
     DECISION_MESSAGES, LOCATION_DECK, LOCATION_EXTRA, MASTER_RULE_5,
     MSG_CHAINING, MSG_CHAIN_END, MSG_NAMES, MSG_NEW_TURN, MSG_RETRY, MSG_WIN,
-    POS_FACEDOWN_DEFENSE,
+    POS_FACEDOWN_DEFENSE, TYPE_NORMAL,
 )
 
 
@@ -97,6 +98,8 @@ class Duel:
         self.last_chain_player: int | None = None
         self.log: list[str] = []
         self.missing_scripts: set[str] = set()
+        #: Set by from_puzzle/load_puzzle; None for an ordinary deck duel.
+        self.puzzle = None
 
         opts = api.OCG_DuelOptions()
         C.memset(C.byref(opts), 0, C.sizeof(api.OCG_DuelOptions))
@@ -135,12 +138,33 @@ class Duel:
         fname = name.decode("utf-8", "replace")
         body = self.scripts.read(fname)
         if body is None:
-            # c0.lua is a sentinel the core probes for (card code 0), not a
-            # real card - recording it as missing is a false positive.
-            if fname not in ("c0.lua", "./c0.lua"):
+            if self._script_absence_is_notable(fname):
                 self.missing_scripts.add(fname)
             return 0
         return self.lib.OCG_LoadScript(self.handle, body, len(body), name)
+
+    def _script_absence_is_notable(self, fname: str) -> bool:
+        """Whether a script the core could not find is actually a problem.
+
+        Two cases are normal and must not be reported, or the real signal - a
+        card silently left with no effects, which is trap 1 - drowns in noise:
+
+        - `c0.lua`, a sentinel the core probes for card code 0.
+        - Vanilla monsters. A Normal monster has no script in CardScripts at
+          all, so the core asks, gets nothing, and is perfectly correct. Every
+          "missing" script in the first puzzle run was one of these: Blue-Eyes
+          White Dragon, Dark Magician, Mokey Mokey.
+        """
+        stem = Path(fname).name
+        if stem == "c0.lua":
+            return False
+        m = re.fullmatch(r"c(\d+)\.lua", stem)
+        if not m:
+            return True
+        row = self.db.row(int(m.group(1)))
+        if row is None:
+            return True
+        return not (row[4] & TYPE_NORMAL)
 
     def _on_log(self, payload, msg, log_type):
         self.log.append(f"[{log_type}] {msg.decode('utf-8', 'replace')}")
@@ -205,6 +229,55 @@ class Duel:
         while len(self.dealt) <= team:
             self.dealt.append(([], []))
         self.dealt[team] = (list(order), list(extra))
+
+    # ------------------------------------------------------------ puzzles
+
+    #: Any fixed non-zero seed. OCG_CreateDuel rejects an all-zero seed with
+    #: NULL_RNG_SEED, and a puzzle's field is authored rather than dealt, so
+    #: the value only matters for in-duel randomness - which most puzzles
+    #: suppress anyway with DUEL_PSEUDO_SHUFFLE.
+    PUZZLE_SEED = (1, 7, 13, 29)
+
+    @classmethod
+    def from_puzzle(cls, puzzle, *, seed: tuple[int, int, int, int] | None = None,
+                    **kwargs) -> "Duel":
+        """Build a duel whose field comes from an EDOPro puzzle script.
+
+        Deliberately not the deck path. `Debug.ReloadFieldBegin` calls
+        `pduel->clear()` and assigns `duel_options` outright, and every puzzle
+        calls `Debug.SetPlayerInfo(p, lp, 0, 0)`, so the script decides the
+        ruleset, the life points and - with start count zero - the fact that
+        OCG_StartDuel draws nothing. Passing our own flags/LP/draw counts here
+        would be inert at best and misleading to read, so they are forced to
+        zero and the script is left to set them.
+
+        Order matters and is not interchangeable: the globals must be loaded
+        before the puzzle, because the puzzle's top-level Lua runs during
+        OCG_LoadScript and immediately creates cards, and a card created
+        before utility.lua exists has no effects at all (see trap 1).
+        """
+        seed = seed or cls.PUZZLE_SEED
+        kwargs.pop("flags", None)
+        kwargs.pop("starting_lp", None)
+        kwargs.pop("starting_draw", None)
+        kwargs.pop("draw_per_turn", None)
+        duel = cls(seed, flags=0, starting_lp=0, starting_draw=0,
+                   draw_per_turn=0, **kwargs)
+        duel.load_puzzle(puzzle)
+        return duel
+
+    def load_puzzle(self, puzzle) -> None:
+        """Run a puzzle script, building its field. Must precede start()."""
+        name = puzzle.path.name.encode("utf-8", "replace")
+        if not self.lib.OCG_LoadScript(self.handle, puzzle.source,
+                                       len(puzzle.source), name):
+            raise RuntimeError(
+                f"OCG_LoadScript failed for puzzle {puzzle.path.name}: "
+                + "; ".join(self.log[-3:] or ["no core log output"])
+            )
+        self.puzzle = puzzle
+
+    # ------------------------------------------------------------ start
 
     def start(self) -> None:
         self.lib.OCG_StartDuel(self.handle)

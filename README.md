@@ -95,6 +95,30 @@ only as portable as the card scripts it was played with**. A client whose
 scripts differ from `data/DATA_COMMITS` can desync mid-duel — which is not a
 bug in the file. See `DECISIONS.md`.
 
+## Puzzles as a free stress test
+
+EDOPro ships a puzzle collection: each script fixes a hand and field and
+demands a win in one turn. The win condition is enforced by the engine —
+`aux.BeginPuzzle()` registers an end-of-turn effect that sets the solver's life
+points to zero — so **solved/unsolved is the duel's own verdict**, with no
+value function, no search referee and no authored solution to diff against.
+
+```
+239 playable puzzles (219 of 458 are Rush Duel, a different ruleset)
+229 ran clean  ->  95.8%   the harness number
+ 10 harness faults          9 response-format errors, 1 stall
+```
+
+`python scripts/run_puzzles.py` plays them with the random-legal policy, so
+this costs nothing. The number that matters is how many the harness could
+*run*: a puzzle the agent loses is a puzzle the agent lost, while a puzzle that
+raises or stalls is a bug in `engine/`. The two are reported separately and
+never summed.
+
+Puzzles are a **debug tool, not the benchmark**. They have no live opponent, so
+they test single-turn combo execution and say nothing about planning under
+interruption — which is the thesis. `bench/` stays sealed.
+
 ## Layout
 
 ```

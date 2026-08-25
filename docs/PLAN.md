@@ -494,3 +494,54 @@ and **ablate it** — report flat vs. hierarchical as a result, not a config.
   scripts differ from `data/DATA_COMMITS` can desync mid-duel. Nothing checks
   that our pin and EDOPro's live data agree; `tests/test_yrp_edopro.py`
   catches it after the fact, on the machine that has EDOPro installed.
+
+---
+
+# Puzzles: a free stress test, ahead of M2
+
+EDOPro ships a puzzle collection (`ProjectIgnis/Puzzles`, now pinned in
+`data/DATA_COMMITS`). Each script fixes a hand and field through the core's
+`Debug` library and demands a win in one turn.
+
+**The win condition is enforced by the engine.** `aux.BeginPuzzle()` registers
+an `EVENT_TURN_END` effect running `Auxiliary.PuzzleOp`, which is
+`Duel.SetLP(0,0)` — survive the turn and you lose. So solved/unsolved is the
+duel result: verifiable, binary, and needing no value function, no search
+referee, and no domain oracle. That is the signal PTCG-Bench says long-horizon
+card games cannot give, available here for free.
+
+**They are a debug tool, not the benchmark.** A puzzle has no live opponent —
+`DUEL_SIMPLE_AI`, and the duel ends before the opponent's turn — so it tests
+single-turn combo execution and says nothing about planning under
+interruption, which is the thesis. The benchmark remains the sealed Sky
+Striker splits, and those come after. Because puzzles are not the benchmark,
+tuning against them is legitimate.
+
+**Inventory.** 458 scripts, of which 219 are Rush Duel — a different ruleset
+and card pool — leaving **239 playable**, spanning Master Rules 2 through 5
+and 15 Speed Duel puzzles. The wide card pool is the point: it reaches
+`MSG_*` paths Sky Striker never touches.
+
+**First measurement** (`scripts/run_puzzles.py`, random-legal policy, no
+tokens): **229 of 239 ran clean — 95.8%.** Ten harness faults: nine response
+formats the policy could not satisfy, spread across `MSG_SELECT_CARD`,
+`MSG_SELECT_CHAIN`, `MSG_SELECT_PLACE`, `MSG_SELECT_YESNO` and
+`MSG_SORT_CARD`, plus one stall. `MSG_SELECT_OPTION` and `MSG_SORT_CARD` still
+have no real decoder — they answer 0 and are counted as unhandled, a gap M1
+recorded and never closed.
+
+Read the *ran clean* number, not the solved count. A puzzle the agent loses is
+a puzzle the agent lost; a puzzle that raises or stalls is a bug in `engine/`.
+
+## Correction: the agent is a network *client*, not a host
+
+An earlier reading of the deferred network transport assumed we would host.
+Measured against the install: `config/system.conf` sets `serverport = 7911`,
+and `WindBot.exe` contains `CtosMessage`/`StocMessage` — EDOPro hosts the room
+and WindBot **joins it as a client**. "Add AI player" launches a WindBot; our
+agent takes the same slot by connecting to `127.0.0.1:7911`.
+
+Consequence: during a networked duel the core belongs to EDOPro, so there is
+no `OCG_DuelQuery` on our side. The escape is that the server pushes query
+buffers as `MSG_UPDATE_DATA` (6) and `MSG_UPDATE_CARD` (7) — the same TLV
+format `engine/board.py` already parses, so no shadow state machine is needed.

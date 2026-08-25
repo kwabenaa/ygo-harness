@@ -1,0 +1,141 @@
+"""EDOPro puzzle loading, parsing, and field construction.
+
+The expected values here are transcribed from the puzzle's own Lua source,
+not produced by engine/puzzle.py. That matters: a test whose input our own
+parser generated cannot fail for the interesting reason - our reader would
+simply agree with our reader, exactly the way the .yrp writer agreed with the
+.yrp parser for two commits while the file would not open.
+
+The puzzle pinned below is data/Puzzles/Miscellaneous/Puzzle_13_Infernity_Combo.lua.
+Its counts were read with grep over the file, and the whole test module skips
+when the collection has not been fetched.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from engine import board
+from engine.constants import (
+    LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND,
+    LOCATION_MZONE, LOCATION_SZONE, MSG_SELECT_IDLECMD,
+)
+from engine.duel import Duel
+from engine.messages import parse_idlecmd
+from engine.puzzle import Puzzle, iter_puzzles
+
+PINNED = "Puzzle_13_Infernity_Combo.lua"
+
+#: Transcribed from the file, per (player, location).
+PINNED_FIELD = {
+    (0, LOCATION_DECK): 10,
+    (0, LOCATION_EXTRA): 16,
+    (0, LOCATION_GRAVE): 9,
+    (0, LOCATION_HAND): 1,
+    (1, LOCATION_HAND): 1,
+    (1, LOCATION_MZONE): 3,
+    (1, LOCATION_SZONE): 1,
+}
+PINNED_LP = {0: 100, 1: 12000}
+PINNED_RULE = 3
+
+
+def _pool_available() -> bool:
+    try:
+        from engine.puzzle import find_pool
+        find_pool()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _pool_available(),
+    reason="puzzle collection not fetched - run scripts/fetch_data.sh",
+)
+
+
+@pytest.fixture(scope="module")
+def pinned() -> Puzzle:
+    for p in iter_puzzles():
+        if p.path.name == PINNED:
+            return p
+    pytest.skip(f"{PINNED} not in the pinned collection")
+
+
+def test_metadata_matches_source(pinned: Puzzle):
+    assert pinned.rule == PINNED_RULE
+    assert pinned.lp == PINNED_LP
+    assert pinned.objective.startswith("Objective:")
+    assert not pinned.unparsed_cards
+    assert pinned.skip_reason() is None
+
+
+def test_declared_field_matches_source(pinned: Puzzle):
+    assert pinned.declared_counts() == PINNED_FIELD
+
+
+def test_engine_builds_the_declared_field(pinned: Puzzle):
+    """The field the core actually holds, not the one we parsed.
+
+    Card counts read back through the query API, which is the same path the
+    renderer uses - so this fails if placement is wrong OR if the query
+    buffer's length prefix is mishandled (trap 4), which otherwise renders as
+    an empty board rather than as an error.
+    """
+    with Duel.from_puzzle(pinned) as duel:
+        duel.start()
+        actual = {
+            (player, loc): board.count(duel, player, loc)
+            for player, loc in PINNED_FIELD
+        }
+    assert actual == PINNED_FIELD
+
+
+def test_puzzle_offers_real_options(pinned: Puzzle):
+    """Assert on a positive: the agent is actually given something to do.
+
+    The engine fails quietly here. Without the global Lua scripts every card
+    loses its effects and the idle menu collapses to summon/set only, which
+    presents as a game where nothing has an ability rather than as an error
+    (trap 1). An empty activatable list must fail this test, not pass it.
+    """
+    seen_idle = None
+    with Duel.from_puzzle(pinned) as duel:
+        duel.start()
+
+        def capture(msg, _duel):
+            nonlocal seen_idle
+            if msg is not None and msg.id == MSG_SELECT_IDLECMD and seen_idle is None:
+                seen_idle = parse_idlecmd(msg.payload)
+            raise StopIteration
+
+        try:
+            duel.run(capture, max_steps=2000)
+        except StopIteration:
+            pass
+
+    assert seen_idle is not None, "no idle decision was ever reached"
+    assert seen_idle.actions(), "idle menu was empty"
+    assert seen_idle.activatable, (
+        "no activatable effects offered - the usual cause is that the shared "
+        "Lua scripts did not load, leaving every card with no effects"
+    )
+
+
+def test_rush_puzzles_are_excluded():
+    """Rush Duel is a different ruleset and card pool, and must not run here.
+
+    Roughly half the collection is Rush. Silently attempting those would
+    report a wall of harness faults that say nothing about the harness.
+    """
+    pool = list(iter_puzzles())
+    assert len(pool) > 200, "collection looks truncated"
+    rush = [p for p in pool if p.is_rush]
+    assert rush, "no Rush puzzles found - did the collection change?"
+    assert all(p.skip_reason() == "rush" for p in rush)
+    assert all(not p.is_rush for p in pool if p.skip_reason() is None)

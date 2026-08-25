@@ -10,7 +10,7 @@ what already cost a debugging session.
 ```bash
 brew install cmake lua@5.4 meson ninja pkg-config   # macOS
 ./scripts/build_core.sh      # builds engine/lib/libocgcore.dylib
-./scripts/fetch_data.sh      # card database + Lua card scripts
+./scripts/fetch_data.sh      # card database + Lua card scripts + puzzles
 uv venv --python 3.12 .venv && source .venv/bin/activate
 uv pip install pytest openai rich pyyaml
 python -m pytest tests/ -q
@@ -18,6 +18,10 @@ python -m pytest tests/ -q
 
 `.env` holds `OPENROUTER_API_KEY`. It is gitignored — **this repo is public,
 never commit it.**
+
+Exercising the harness costs nothing: `python scripts/run_puzzles.py` plays
+EDOPro's puzzle collection with the random-legal policy, no tokens involved.
+Read the **"ran clean"** line, not the solved count — see the conventions.
 
 `tests/test_yrp_edopro.py` and one case in `tests/test_message_stream.py`
 need an EDOPro install and **skip silently without one** — a green run does
@@ -37,12 +41,14 @@ tests** — see trap 11.
 | `engine/messages.py` | decoders/encoders per `MSG_*` decision type |
 | `engine/board.py` | board state via `OCG_DuelQuery*` |
 | `engine/render.py` | compact text rendering, **hidden-info masking** |
+| `engine/puzzle.py` | EDOPro puzzle scripts: locating, parsing, loading |
 | `llm/provider.py` | one OpenAI-compatible client (OpenRouter/Ollama/…) |
 | `llm/models.yaml` | model roles, with the measurements that chose them |
 | `agents/` | policies. Anything goes here |
 | `bench/` | **sealed** eval protocol. Do not tune against it |
 | `viz/replay.py` | `.yrp` export - see the two `REPLAY_NEWREPLAY` traps below |
 | `scripts/verify_yrp.py` | replays a `.yrp` through EDOPro's own core/cards/scripts |
+| `scripts/run_puzzles.py` | runs the puzzle collection; separates harness faults from losses |
 | `scripts/deliberation_report.py` | planner/executor split, measured on free random duels |
 | `scripts/lethal_audit.py` | battle-phase misses, with the seed+turn to go watch |
 | `docs/PLAN.md`, `DECISIONS.md` | plan, and the record of decisions/deferrals |
@@ -122,6 +128,41 @@ error.
     is why upstream `meson.build` cannot be used — it links a C-compiled
     system Lua.
 
+13. **A puzzle is not a deck duel, and the load order is not negotiable.**
+    `Debug.ReloadFieldBegin` calls `pduel->clear()` and assigns
+    `duel_options` outright, and every puzzle calls
+    `Debug.SetPlayerInfo(p, lp, 0, 0)` — start count and draw count zero — so
+    the script owns the ruleset, the life points and the opening hand.
+    Anything passed to `Duel(...)` about those is inert. Sequence is
+    create → `load_globals()` → `OCG_LoadScript(puzzle)` → `OCG_StartDuel`:
+    the puzzle's top-level Lua runs *during* `OCG_LoadScript` and creates
+    cards immediately, so globals loaded after it hit trap 1 in full. Use
+    `Duel.from_puzzle`.
+
+14. **The script vocabulary and the C header are different namespaces.**
+    `constant.lua` defines names `ocgapi_constants.h` does not, and puzzle
+    sources use them freely: `POS_FACEUP`/`POS_ATTACK`/`POS_DEFENSE` are
+    composed positions, `LOCATION_FZONE` (0x100) and `LOCATION_PZONE` (0x200)
+    are script-side locations that libdebug folds into `LOCATION_SZONE` when
+    placing, and `DUEL_1_FIELD` is constant.lua's name for the header's
+    `DUEL_1_FACEUP_FIELD`. A parser missing one of these does not raise — it
+    drops the card. That is how six cards vanished from a parsed field while
+    the engine placed all six.
+
+15. **`Debug.AddCard` skips silently when the zone is unusable.** It checks
+    `is_location_useable` and simply returns, so a puzzle that over-declares a
+    location quietly loses the surplus, and cards declared to the main deck
+    are re-routed if they are Extra Deck types. Declared-vs-actual is
+    therefore *expected* to differ on a handful of puzzles; 231 of 237 match
+    exactly and the six that do not are the engine being right.
+
+16. **Most "missing" card scripts are vanilla monsters.** A Normal monster
+    has no script in CardScripts at all, so the core asks, gets nothing, and
+    is correct. Reporting those buries the one case that matters — an effect
+    card left with no effects, which is trap 1. `Duel._script_absence_is_notable`
+    filters on `TYPE_NORMAL`; the first puzzle run reported Blue-Eyes White
+    Dragon and Dark Magician as missing before it did.
+
 ## Models
 
 See `llm/models.yaml`. Two findings worth not re-deriving:
@@ -159,3 +200,13 @@ See `llm/models.yaml`. Two findings worth not re-deriving:
   `scripts/deliberation_report.py`. Check for this before spending tokens on a
   measurement.
 - `bench/` is sealed. Tune in `agents/`, never against the eval set.
+- **EDOPro puzzles are a debug tool, not the benchmark.** They are a
+  single-turn, no-opponent test of combo execution, so they say nothing about
+  planning under interruption — the actual thesis. Tuning against them is
+  fine and expected. The benchmark remains the sealed Sky Striker splits.
+- **Research findings go back into the docs in the same change that found
+  them.** `docs/PLAN.md` for anything that moves a milestone or invalidates
+  an estimate, `README.md` for anything that changes what the project claims,
+  `CLAUDE.md` for anything that would otherwise cost a second debugging
+  session, `DECISIONS.md` for a choice or a deferral. A finding recorded only
+  in a chat transcript is a finding that gets rediscovered.

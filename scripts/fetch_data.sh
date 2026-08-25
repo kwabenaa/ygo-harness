@@ -12,6 +12,7 @@ mkdir -p "$DATA"
 
 CDB_REF="${CDB_REF:-master}"
 SCRIPTS_REF="${SCRIPTS_REF:-master}"
+PUZZLES_REF="${PUZZLES_REF:-master}"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
@@ -27,9 +28,21 @@ if [ ! -d "$DATA/CardScripts/.git" ]; then
     https://github.com/ProjectIgnis/CardScripts.git "$DATA/CardScripts"
 fi
 
+# EDOPro's puzzle collection. Each script builds a fixed field and demands a
+# win in one turn, with the win condition enforced by the engine itself - so
+# they are a harness stress test that needs no scoring function. EDOPro ships
+# a copy, but reading whatever the install happens to hold today is not
+# reproducible, hence our own pin.
+if [ ! -d "$DATA/Puzzles/.git" ]; then
+  log "cloning Puzzles (EDOPro puzzle collection)"
+  git clone --depth 1 --branch "$PUZZLES_REF" \
+    https://github.com/ProjectIgnis/Puzzles.git "$DATA/Puzzles"
+fi
+
 {
   echo "babelcdb  $(git -C "$DATA/BabelCDB" rev-parse HEAD)"
   echo "cardscripts $(git -C "$DATA/CardScripts" rev-parse HEAD)"
+  echo "puzzles $(git -C "$DATA/Puzzles" rev-parse HEAD)"
 } > "$DATA/DATA_COMMITS"
 
 log "card databases:"

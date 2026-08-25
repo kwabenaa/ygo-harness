@@ -33,7 +33,46 @@ def header_values() -> dict[str, int]:
         else:
             val = int(raw, 10)
         out[m.group(1)] = val
+    out.update(header_expressions(text, out))
     return out
+
+
+def header_expressions(text: str, literals: dict[str, int]) -> dict[str, int]:
+    """Resolve `#define NAME (A | B | C)` composites.
+
+    The ruleset presets - DUEL_MODE_MR1..MR5, DUEL_MODE_SPEED,
+    DUEL_MODE_RUSH - are composed in the header rather than written as
+    literals, so the literal-only scan above cannot see them. We compose them
+    too, in engine/constants.py, and a composition that silently stops
+    matching theirs would select the wrong ruleset without raising: a puzzle
+    would load under Master Rule 3 zoning and simply offer the wrong zones.
+
+    Resolution is iterative because some presets reference others
+    (DUEL_MODE_GOAT builds on DUEL_MODE_MR1).
+    """
+    exprs = {
+        m.group(1): m.group(2)
+        for m in re.finditer(
+            r"#define\s+([A-Z][A-Z0-9_]*)\s+\(([A-Z0-9_|\s]+)\)\s*$",
+            text, re.MULTILINE,
+        )
+    }
+    known = dict(literals)
+    for _ in range(len(exprs) + 1):
+        progressed = False
+        for name, body in exprs.items():
+            if name in known:
+                continue
+            parts = [t.strip() for t in body.split("|")]
+            if all(t in known for t in parts):
+                val = 0
+                for t in parts:
+                    val |= known[t]
+                known[name] = val
+                progressed = True
+        if not progressed:
+            break
+    return {k: v for k, v in known.items() if k in exprs}
 
 
 @pytest.mark.skipif(not HEADER.exists(), reason="core not vendored")
