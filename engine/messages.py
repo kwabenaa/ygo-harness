@@ -157,3 +157,67 @@ def parse_select_card(payload: bytes) -> SelectCard:
     except (IndexError, struct.error):
         pass
     return SelectCard(player, cancelable, mn, mx, codes)
+
+
+@dataclass
+class SelectPlace:
+    """A "choose a zone" decision point (MSG_SELECT_PLACE / MSG_SELECT_DISFIELD).
+
+    `flag` is a bitmask of *unavailable* zones - a set bit means you may NOT
+    place there. Bit layout is relative to the player being asked:
+
+        bits  0-7   your monster zones
+        bits  8-15  your spell/trap zones
+        bits 16-23  opponent monster zones
+        bits 24-31  opponent spell/trap zones
+
+    Monster zones are 0-6, spell/trap zones 0-7 (playerop.cpp validator).
+    """
+    player: int
+    count: int
+    flag: int
+
+    def available(self) -> list[tuple[int, int, int]]:
+        """Legal (player, location, sequence) placements."""
+        from .constants import LOCATION_MZONE, LOCATION_SZONE
+        out = []
+        for is_opp in (0, 1):
+            for loc, maxseq in ((LOCATION_MZONE, 7), (LOCATION_SZONE, 8)):
+                for seq in range(maxseq):
+                    bit = 1 << seq
+                    if loc == LOCATION_SZONE:
+                        bit <<= 8
+                    if is_opp:
+                        bit <<= 16
+                    if not (self.flag & bit):
+                        who = (1 - self.player) if is_opp else self.player
+                        out.append((who, loc, seq))
+        return out
+
+    @staticmethod
+    def encode(placements: list[tuple[int, int, int]]) -> bytes:
+        return b"".join(bytes([p, loc, seq]) for p, loc, seq in placements)
+
+
+def parse_select_place(payload: bytes) -> SelectPlace:
+    r = _Reader(payload)
+    return SelectPlace(r.u8(), r.u8(), r.u32())
+
+
+class SelectUnselect:
+    """MSG_SELECT_UNSELECT_CARD - the iterative select/unselect picker.
+
+    Despite the name it does NOT share a response format with MSG_SELECT_CARD.
+    It takes exactly one index per round-trip: `int32 count` (which must be
+    literally 1 - the validator rejects 0 and anything > 1) followed by
+    `int32 index` into the concatenated select_cards + unselect_cards lists.
+    -1 finishes, but only when the prompt is cancelable or finishable.
+    """
+
+    @staticmethod
+    def encode(index: int) -> bytes:
+        return struct.pack("<ii", 1, index)
+
+    @staticmethod
+    def finish() -> bytes:
+        return struct.pack("<i", -1)
