@@ -194,8 +194,14 @@ You are looking for a sequence that wins THIS TURN. Think about which cards
 combine, what each summon enables, and where the damage finally comes from.
 Count the damage: say how the opponent's life total reaches zero.
 
-Answer with a short numbered list of the steps you intend to take, then a
-final line in exactly this form:
+Answer with a short numbered list of the steps you intend to take. **Name
+every card each step touches** - what you activate, and also what you discard,
+tribute, destroy or target. Write "Activate Raigeki Break, discarding Night
+Assailant, destroying Dark Jeroid", not "Activate Raigeki Break". Committing
+an effect and then being asked what to aim it at is most of a turn, and a step
+that does not say cannot be carried out for you.
+
+Then a final line in exactly this form:
 
     DAMAGE: <sum of each hit> = <total>
 

@@ -541,3 +541,43 @@ def test_a_single_option_is_never_sent_to_the_model():
     assert agent._ask(None, OneOption(), 1) == 0
     assert provider.calls == 0, "asked the model a question with one answer"
     assert agent.stats.forced == 1
+
+
+def test_plan_chooses_only_when_unambiguous():
+    """The harness carries out a plan step, but never guesses at one.
+
+    An index comes back only when exactly one option matches. Several matches
+    or none go to the model. This is stricter than it needs to be on purpose:
+    the agent cannot retrace, so a wrong auto-taken action is unrecoverable in
+    a way a wrong branch in a search would not be.
+    """
+    from agents.plan_tracker import PlanTracker
+
+    plan = ("1. Activate Fiend's Sanctuary to make a Token.\n"
+            "2. Normal Summon Obelisk the Tormentor.")
+    cards = ["Fiend's Sanctuary", "Obelisk the Tormentor"]
+    tracker = PlanTracker.parse(plan, cards)
+
+    assert tracker.choose(["activate: Fiend's Sanctuary", "to battle phase"]) == 0
+    # Two ways to play the same card is a real choice, not a formality.
+    assert tracker.choose(["activate: Fiend's Sanctuary",
+                           "set spell/trap: Fiend's Sanctuary"]) is None
+    assert tracker.choose(["to battle phase", "to end phase"]) is None
+
+    # Nothing left to do means nothing to carry out.
+    for step in tracker.steps:
+        step.done = True
+    assert tracker.choose(["activate: Fiend's Sanctuary"]) is None
+
+
+def test_interrupts_are_never_auto_taken():
+    """A chain window is exactly what the plan did not anticipate.
+
+    `_ChainMenu` and `_CardMenu` both carry `deliberate`, and `_ask` checks it
+    before consulting the tracker - so a plan step can never be used to answer
+    an interrupt or a targeting decision on autopilot.
+    """
+    from agents.llm_agent import _CardMenu, _ChainMenu
+
+    assert _ChainMenu.deliberate is True
+    assert _CardMenu.deliberate is True

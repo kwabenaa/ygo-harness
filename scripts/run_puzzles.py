@@ -175,6 +175,7 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["reasked"] = stats.unparseable + stats.out_of_range
             result["no_plan"] = stats.no_plan
             result["forced"] = stats.forced
+            result["from_plan"] = stats.from_plan
             tracker = getattr(p0, "tracker", None)
             if tracker is not None:
                 result["skipped_ahead"] = tracker.skipped_ahead
@@ -327,6 +328,9 @@ def main() -> int:
         # so a run full of forced defaults measures the fallback, not the
         # model - and it looks exactly like an agent playing badly.
         print(f"  re-asked for a bare number {forced}")
+        auto = sum(r.get("from_plan", 0) for r in results)
+        if auto:
+            print(f"  carried out from the plan {auto}   (no model call)")
         skipped_trivial = sum(r.get("forced", 0) for r in results)
         if skipped_trivial:
             print(f"  single-option, not asked {skipped_trivial}")

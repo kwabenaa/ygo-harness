@@ -104,6 +104,30 @@ class PlanTracker:
         if matched is not None:
             matched.done = True
 
+    def choose(self, options: list[str]) -> int | None:
+        """The option that carries out the next step, if it is unambiguous.
+
+        Returns an index only when **exactly one** option matches the next
+        pending step. Several matches, or none, return None and the decision
+        goes to the model.
+
+        Deliberately strict. The harness must never commit to an action the
+        plan did not name - that is the whole safety property of an agent that
+        cannot retrace. A wrong guess here is not recoverable the way a wrong
+        guess in a search would be, because there is no undo in a real duel.
+        """
+        pending = self.pending()
+        if not pending:
+            return None
+        step = pending[0]
+        if not step.cards:
+            return None
+        hits = [
+            i for i, label in enumerate(options)
+            if any(c.lower() in label.lower() for c in step.cards)
+        ]
+        return hits[0] if len(hits) == 1 else None
+
     # ------------------------------------------------------------ prompt
 
     def render(self, options: list[str]) -> str:

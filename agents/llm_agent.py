@@ -131,6 +131,8 @@ class Stats:
     reasked: int = 0
     #: Decisions with a single legal answer, taken without asking the model.
     forced: int = 0
+    #: Decisions carried out straight from the plan, with no model call.
+    from_plan: int = 0
     #: Turns played with no plan at all. Never silent: a missing plan is not a
     #: decision to improvise, it is the planning call having failed.
     no_plan: int = 0
@@ -299,6 +301,21 @@ class LLMAgent:
         events = self.history[-6:] + recent_events(duel, self.db, self.viewer)
         self._ensure_plan(duel, turn)
         menu_labels = self._labels(cmd, menu_names)
+
+        # Carry out the plan rather than re-deciding it. When the next step
+        # matches exactly one option, that option *is* the decision - the
+        # thinking happened when the plan was written, and asking again buys a
+        # different answer at best. Interrupts and chain windows are never
+        # auto-taken: they are the moments the plan did not anticipate.
+        if not getattr(cmd, "deliberate", False):
+            picked = self.tracker.choose(menu_labels)
+            if picked is not None and 0 <= picked < n_options:
+                self.stats.from_plan += 1
+                self.tracker.note_choice(menu_labels[picked], menu_labels)
+                if self.verbose:
+                    print(f"  [plan] {menu_labels[picked][:60]}")
+                return picked
+
         progress = self.tracker.render(menu_labels)
         body = decision_prompt(
             render_state(duel, self.db, self.viewer, turn=turn,
