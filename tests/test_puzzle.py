@@ -581,3 +581,29 @@ def test_interrupts_are_never_auto_taken():
 
     assert _ChainMenu.deliberate is True
     assert _CardMenu.deliberate is True
+
+
+def test_a_dead_plan_is_detected():
+    """A step naming a card the menu cannot act on is how a plan dies.
+
+    Without rollback this is the only signal available - the plan cannot be
+    verified ahead of time, only observed to have stopped working. Detecting
+    it is what triggers a rebuild; telling the model in the prompt was not
+    enough, since it read "step 3 is not available" and improvised on.
+
+    One unavailable step is normal - it often needs something else first - so
+    the caller requires it twice running before rebuilding.
+    """
+    from agents.plan_tracker import PlanTracker
+
+    plan = "1. Declare a direct attack with Lava Golem."
+    tracker = PlanTracker.parse(plan, ["Lava Golem"])
+
+    # Lava Golem is summoned to the *opponent's* field, so it never appears as
+    # something you may attack with. This is the real plan that lost a puzzle.
+    assert tracker.is_dead(["to main phase 2", "to end phase"])
+    assert not tracker.is_dead(["attack with: Lava Golem", "to end phase"])
+
+    # A step naming no card cannot be judged either way.
+    vague = PlanTracker.parse("1. Proceed to the Battle Phase.", ["Lava Golem"])
+    assert not vague.is_dead(["to end phase"])

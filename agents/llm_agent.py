@@ -133,6 +133,8 @@ class Stats:
     forced: int = 0
     #: Decisions carried out straight from the plan, with no model call.
     from_plan: int = 0
+    #: Times the plan died and was rebuilt from the board.
+    replans: int = 0
     #: Turns played with no plan at all. Never silent: a missing plan is not a
     #: decision to improvise, it is the planning call having failed.
     no_plan: int = 0
@@ -175,6 +177,8 @@ class LLMAgent:
         self.planning = planning
         self.objective = objective
         self._plan_turn = -1
+        #: Consecutive decisions where the plan's next step was unavailable.
+        self._dead_for = 0
         #: Every decision, as the model saw it. This is the whole prompt body
         #: - board, hand, legal actions - plus the reply, so a transcript
         #: shows the harness's translation rather than a summary of it.
@@ -235,6 +239,26 @@ class LLMAgent:
         })
         if self.verbose and self.plan:
             print(f"  [plan] {self.plan[:200]}")
+
+    #: Consecutive decisions with the next step unavailable before rebuilding.
+    #: One is normal - a step often needs something else to happen first. Two
+    #: in a row means the plan is not going to happen.
+    REPLAN_AFTER = 2
+
+    def _replan(self, duel, turn, menu_labels: list[str]) -> None:
+        """Write a new plan from the board as it now is."""
+        self.stats.replans += 1
+        if self.verbose:
+            print("  [plan died; re-planning from the current board]")
+        self._plan_turn = -1          # force _ensure_plan to rebuild
+        dead = self.plan
+        self.plan = ""
+        self._ensure_plan(duel, turn)
+        if not self.plan:
+            self.plan = dead          # a failed rebuild is worse than a stale plan
+            self.tracker = PlanTracker.parse(
+                self.plan, [self.db.name(c) for c in self.deck_codes])
+        self._dead_for = 0
 
     def _check_damage(self, duel, provider, turn) -> str:
         """Hold the plan against the opponent's actual life total.
@@ -315,6 +339,18 @@ class LLMAgent:
                 if self.verbose:
                     print(f"  [plan] {menu_labels[picked][:60]}")
                 return picked
+
+        # A plan whose next step the menu cannot offer, repeatedly, is a plan
+        # that has died - and without rollback that is the only signal we get.
+        # Telling the model about it in the prompt was not enough: it read
+        # "step 3 is not available" and carried on improvising. Rebuild it.
+        if self.tracker.steps and self.tracker.is_dead(menu_labels):
+            self._dead_for += 1
+            if self._dead_for >= self.REPLAN_AFTER:
+                self._replan(duel, turn, menu_labels)
+                menu_labels = self._labels(cmd, menu_names)
+        else:
+            self._dead_for = 0
 
         progress = self.tracker.render(menu_labels)
         body = decision_prompt(

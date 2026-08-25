@@ -104,6 +104,17 @@ class PlanTracker:
         if matched is not None:
             matched.done = True
 
+    def is_dead(self, options: list[str]) -> bool:
+        """Whether the next step names a card the menu cannot act on.
+
+        Not proof - a step may simply need something else to happen first. It
+        becomes proof when it stays true, which is what the caller counts.
+        """
+        pending = self.pending()
+        if not pending or not pending[0].cards:
+            return False
+        return self._offered(pending[0], options) is None
+
     def choose(self, options: list[str]) -> int | None:
         """The option that carries out the next step, if it is unambiguous.
 

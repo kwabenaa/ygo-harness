@@ -176,6 +176,7 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["no_plan"] = stats.no_plan
             result["forced"] = stats.forced
             result["from_plan"] = stats.from_plan
+            result["replans"] = stats.replans
             tracker = getattr(p0, "tracker", None)
             if tracker is not None:
                 result["skipped_ahead"] = tracker.skipped_ahead
@@ -331,6 +332,9 @@ def main() -> int:
         auto = sum(r.get("from_plan", 0) for r in results)
         if auto:
             print(f"  carried out from the plan {auto}   (no model call)")
+        replans = sum(r.get("replans", 0) for r in results)
+        if replans:
+            print(f"  plan died and was rebuilt {replans}")
         skipped_trivial = sum(r.get("forced", 0) for r in results)
         if skipped_trivial:
             print(f"  single-option, not asked {skipped_trivial}")
