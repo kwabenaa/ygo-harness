@@ -177,6 +177,19 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["forced"] = stats.forced
             result["from_plan"] = stats.from_plan
             result["replans"] = stats.replans
+        # Token accounting per role. Cost per puzzle is a reported metric, and
+        # the two roles have very different shapes: the planner's output is
+        # reasoning and dominates, the executor returns an index.
+        for role, prov in (("planner", getattr(p0, "planner", None)),
+                           ("executor", getattr(p0, "executor", None))):
+            u = getattr(prov, "usage", None)
+            if u is None:
+                continue
+            result[f"{role}_llm_calls"] = u.calls
+            result[f"{role}_in"] = u.prompt_tokens
+            result[f"{role}_cached"] = u.cached_tokens
+            result[f"{role}_write"] = u.cache_write_tokens
+            result[f"{role}_out"] = u.completion_tokens
             tracker = getattr(p0, "tracker", None)
             if tracker is not None:
                 result["skipped_ahead"] = tracker.skipped_ahead
@@ -351,6 +364,19 @@ def main() -> int:
             print(f"  plan steps carried out {done}/{steps}")
             print(f"  taken out of order {skipped}"
                   f"{'   <- the sequencing failure' if skipped else ''}")
+
+    tok = {}
+    for role in ("planner", "executor"):
+        tok[role] = {k: sum(r.get(f"{role}_{n}", 0) for r in results)
+                     for k, n in (("calls", "llm_calls"), ("in", "in"),
+                                  ("cached", "cached"), ("write", "write"),
+                                  ("out", "out"))}
+    if any(v["calls"] for v in tok.values()):
+        print(f"\n  {'role':9} {'calls':>6} {'in':>9} {'cached':>8} "
+              f"{'written':>8} {'out':>9}")
+        for role, v in tok.items():
+            print(f"  {role:9} {v['calls']:>6} {v['in']:>9,} {v['cached']:>8,} "
+                  f"{v['write']:>8,} {v['out']:>9,}")
 
     if unhandled_total:
         print("\n  unhandled decision messages (each one is a missing decoder):")

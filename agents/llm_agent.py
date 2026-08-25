@@ -240,6 +240,12 @@ class LLMAgent:
         if self.verbose and self.plan:
             print(f"  [plan] {self.plan[:200]}")
 
+    #: How much of the turn's history to carry. Bounded rather than unbounded
+    #: because a duel runs many turns and the prompt is rebuilt every decision;
+    #: a puzzle turn produces well under this, so it is effectively complete
+    #: there.
+    LOG_LIMIT = 60
+
     #: Consecutive dead decisions before rebuilding. Measured at 2 this never
     #: fired: `is_dead` only reports a step that *names cards*, none of which
     #: the menu offers, and a puzzle turn ends long before that happens twice
@@ -327,7 +333,15 @@ class LLMAgent:
             self.stats.forced += 1
             return 0
 
-        events = self.history[-6:] + recent_events(duel, self.db, self.viewer)
+        # Everything done this turn, not the last six. Over a twenty-decision
+        # turn a six-item window loses sight of what has already been tried,
+        # and each decision re-derives intent from the board alone. This is the
+        # cheap half of statefulness: a compact log of actions and engine
+        # events, rather than replaying superseded reasoning - which we
+        # measured to be roughly half self-correction, and which would grow
+        # the prompt without bound.
+        events = self.history[-self.LOG_LIMIT:] + recent_events(
+            duel, self.db, self.viewer, limit=self.LOG_LIMIT)
         self._ensure_plan(duel, turn)
         menu_labels = self._labels(cmd, menu_names)
 

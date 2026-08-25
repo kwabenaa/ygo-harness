@@ -30,6 +30,10 @@ class Usage:
     calls: int = 0
     prompt_tokens: int = 0
     cached_tokens: int = 0
+    #: Tokens written to cache. Billed at a premium (1.25x on Anthropic), so a
+    #: run that writes the cache repeatedly without reading it is *more*
+    #: expensive than not caching - worth being able to see.
+    cache_write_tokens: int = 0
     completion_tokens: int = 0
 
     def add(self, resp) -> None:
@@ -42,13 +46,22 @@ class Usage:
         details = getattr(u, "prompt_tokens_details", None)
         if details is not None:
             self.cached_tokens += getattr(details, "cached_tokens", 0) or 0
+            self.cache_write_tokens += getattr(details, "cache_write_tokens", 0) or 0
 
     def cost(self, in_per_m: float, out_per_m: float,
-             cached_per_m: float | None = None) -> float:
+             cached_per_m: float | None = None,
+             write_multiplier: float = 1.25) -> float:
+        """Cost at the given rates, counting cache reads and writes separately.
+
+        Writes are billed above the normal input rate, so charging them as
+        ordinary input understates a run that keeps missing the cache.
+        """
         cached_rate = in_per_m if cached_per_m is None else cached_per_m
-        fresh = max(self.prompt_tokens - self.cached_tokens, 0)
+        fresh = max(self.prompt_tokens - self.cached_tokens
+                    - self.cache_write_tokens, 0)
         return (
             fresh / 1e6 * in_per_m
+            + self.cache_write_tokens / 1e6 * in_per_m * write_multiplier
             + self.cached_tokens / 1e6 * cached_rate
             + self.completion_tokens / 1e6 * out_per_m
         )
@@ -80,6 +93,18 @@ class Provider:
     #: These must go through the SDK's extra_body, not as keyword arguments -
     #: the client rejects unknown kwargs outright.
     extra_body: dict = field(default_factory=dict)
+    #: Send the system prompt as a content block carrying a cache breakpoint.
+    #:
+    #: Anthropic models cache only where a breakpoint is marked - without one
+    #: nothing is written to cache at all, which is what we were doing.
+    #: Measured on a 9,926-token system prompt through OpenRouter: first call
+    #: writes and costs $0.0124, second reads and costs $0.0010. Twelve times
+    #: cheaper, and it applies to every call after the first.
+    #:
+    #: Below roughly 2,048 tokens Anthropic will not cache at all, so small
+    #: puzzles get nothing from this - and lose nothing either. Verified
+    #: harmless on qwen, which ignores the annotation.
+    cache_system: bool = True
     usage: Usage = field(default_factory=Usage)
 
     def __post_init__(self):
@@ -106,10 +131,15 @@ class Provider:
         body = dict(self.extra_body or {})
         if reasoning is not None:
             body["reasoning"] = reasoning
+        sys_content = (
+            [{"type": "text", "text": system,
+              "cache_control": {"type": "ephemeral"}}]
+            if self.cache_system else system
+        )
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": system},
+                {"role": "system", "content": sys_content},
                 {"role": "user", "content": user},
             ],
             temperature=self.temperature,

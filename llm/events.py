@@ -260,7 +260,7 @@ def chain_context(duel, db, viewer: int) -> str:
     return ""
 
 
-def recent(duel, db, viewer: int, limit: int = 12) -> list[str]:
+def recent(duel, db, viewer: int, limit: int = 60) -> list[str]:
     """Everything worth telling the agent since it last acted.
 
     Reads `duel.since_last_decision`, which the duel loop maintains precisely

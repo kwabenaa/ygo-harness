@@ -18,11 +18,24 @@
 # are near-forced, which is the whole reason for splitting the roles.
 
 executor:
-  # The ~80% of decisions that are mechanical or near-forced.
-  model: mistralai/mistral-nemo
+  # Mechanical decisions, and plan steps the tracker could not take on its own.
+  #
+  # Same model as the planner, deliberately. Two different models cannot share
+  # a prompt cache at all - different providers, different caches - so a split
+  # across families gives up the cached prefix on every executor call. One
+  # family, one cache.
+  #
+  # Reasoning off. Measured: `reasoning: {enabled: false}` answers in 0.6s with
+  # the actual content; with reasoning on and a small max_tokens the model
+  # spends the whole budget thinking and returns *nothing*, which is the
+  # truncation failure in miniature. `reasoning: {max_tokens: 0}` is a 400 -
+  # do not use it.
+  model: qwen/qwen3.7-flash
   preset: openrouter
   max_tokens: 64
-  # measured: 0.8s, 2 output tokens
+  reasoning:
+    enabled: false
+  # measured: 0.6s, content returned (mistral-nemo was 0.8s, 2 output tokens)
 
 planner:
   # Turn start, after every opponent interruption, and - since the menu-shape
