@@ -61,6 +61,13 @@ class NoAnswer(RuntimeError):
 class _CardMenu:
     """Adapts a SelectCard into a menu render_actions() can print."""
 
+    #: What to destroy, discard, tribute or add is as strategic as deciding to
+    #: activate at all, and the menu shape hides it: two or three options with
+    #: no `activatable` list, so the width and activation triggers both miss
+    #: it. Left to the executor it discarded its own combo piece and destroyed
+    #: its own only monster on a puzzle it had previously solved.
+    deliberate = True
+
     def __init__(self, sc, db):
         self.sc, self.db = sc, db
 
