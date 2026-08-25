@@ -19,6 +19,15 @@ python -m pytest tests/ -q
 `.env` holds `OPENROUTER_API_KEY`. It is gitignored — **this repo is public,
 never commit it.**
 
+`tests/test_yrp_edopro.py` and one case in `tests/test_message_stream.py`
+need an EDOPro install and **skip silently without one** — a green run does
+not mean they ran. Install it from
+[projectignis.github.io/download.html](https://projectignis.github.io/download.html);
+on macOS the `.pkg` installs to `~/Applications/ProjectIgnis` with
+`installer -pkg <pkg> -target CurrentUserHomeDirectory`, no root needed.
+Point elsewhere with `EDOPRO_DIR`. **Launch it once before trusting the
+tests** — see trap 11.
+
 ## Layout
 
 | Path | What |
@@ -130,8 +139,23 @@ See `llm/models.yaml`. Two findings worth not re-deriving:
   machine from the message stream.
 - Every duel records `(seed, response log)`. Not for rollback — it is what
   makes replay, offline scoring and `.yrp` export possible.
-- **Win rate is not a skill signal without controlling turn order.** Random
-  play rarely deals lethal, so games become deck-out races, and the player
-  going second draws one extra card and decks out first. Always split results
-  by going first vs. second.
+- **Win rate is not a skill signal without controlling turn order.** Always
+  split results by going first vs. second. The original evidence — 40/40 duels
+  won by player 0 in deck-out races — **no longer reproduces**, because it was
+  measured before the Lua globals fix when no card had an effect (trap 1). The
+  rule stands on the asymmetry itself, not on the size of that effect. Treat
+  any number measured before that fix as void.
+- **A test whose input our own code produced cannot fail for the interesting
+  reason.** `.yrp` export round-tripped through our own parser for two commits
+  while being unopenable, because our reader agreed with our writer about
+  omitting two fields. Prefer inputs from outside: the vendored core header,
+  a stream EDOPro recorded, EDOPro's own engine. Where that is impossible,
+  pin offsets transcribed from the other side rather than asserting that we
+  agree with ourselves.
+- **Anything that does not depend on what the models answer can be measured
+  for free.** When to deliberate is a function of the duel's counters and the
+  board, so a random-legal duel exercises it exactly as an LLM duel does —
+  which turned the planner/executor split from one hand-measured paid run into
+  `scripts/deliberation_report.py`. Check for this before spending tokens on a
+  measurement.
 - `bench/` is sealed. Tune in `agents/`, never against the eval set.
