@@ -44,6 +44,17 @@ _NUM = re.compile(r"-?\d+")
 PROVIDER_ATTEMPTS = 3
 
 
+class OutOfCredit(RuntimeError):
+    """The account or key cannot pay for more calls.
+
+    Separated from every other failure because retrying is pointless and the
+    reason must not be buried. A spent key returned 403 on every call of a
+    six-run experiment; each duel retried three times, gave up, and was
+    reported `invalid` - accurate but silent about the cause, and it cost a
+    diagnosis to work out that the harness was fine and the balance was not.
+    """
+
+
 class NoAnswer(RuntimeError):
     """The model never produced a usable choice.
 
@@ -393,6 +404,14 @@ class LLMAgent:
                                         reasoning=self.decision_reasoning)
                 break
             except Exception as e:                 # network/provider failure
+                # A spend limit is not transient. Backing off three times
+                # against a hard "no" wastes a minute and tells you nothing.
+                text = str(e)
+                if "limit exceeded" in text.lower() or "insufficient" in text.lower():
+                    raise OutOfCredit(
+                        "the provider key is out of credit or over its spend "
+                        f"limit - no further calls will succeed: {text[:160]}"
+                    ) from e
                 last_error = e
                 self.stats.fallbacks += 1
                 if self.verbose:

@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agents.llm_agent import NoAnswer
+from agents.llm_agent import NoAnswer, OutOfCredit
 from agents.random_legal import RandomLegal
 from engine.carddb import CardDB
 from engine.duel import Duel
@@ -198,6 +198,11 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["unchecked_plans"] = stats.unchecked_plans
         result["_trace"] = getattr(p0, "trace", [])
         result["_system"] = getattr(p0, "system", "")
+    except OutOfCredit:
+        # Nothing downstream can recover from this, and every remaining puzzle
+        # would fail identically. Stop the run rather than produce a column of
+        # meaningless results.
+        raise
     except NoAnswer as exc:
         result.update(outcome=INVALID, detail=str(exc)[:200])
     except Exception as exc:                        # noqa: BLE001 - reported, not swallowed
@@ -231,6 +236,11 @@ def main() -> int:
     ap.add_argument("--transcript", default=None, metavar="DIR",
                     help="write one readable file per puzzle showing exactly "
                          "what the agent was shown and what it chose")
+    ap.add_argument("--model", default=None, metavar="ID",
+                    help="override both roles with one model, for a like-for-"
+                         "like comparison. The executor keeps its reasoning-off "
+                         "setting; the planner keeps whatever the model does by "
+                         "default")
     ap.add_argument("--no-plan", action="store_true",
                     help="skip the per-turn planning call")
     ap.add_argument("--all-planner", action="store_true",
@@ -258,12 +268,17 @@ def main() -> int:
 
         codes = sorted({c.code for c in puzzle.cards})
         system = puzzle_system_prompt(db, codes, puzzle.objective)
+        # One model across both roles when comparing: two families cannot
+        # share a prompt cache, so a comparison that changes only the planner
+        # would also be changing the cache behaviour underneath it.
+        override = {"model": args.model} if args.model else {}
 
         def build(player: int):
             if player == 1:
                 return RandomLegal(seed=args.seed + 1000)
             return HierarchicalAgent(
-                from_config("planner"), from_config("executor"), db, codes,
+                from_config("planner", **override),
+                from_config("executor", **override), db, codes,
                 viewer=0, system=system, verbose=args.verbose,
                 # Everything to the planner. A puzzle is a single turn where
                 # every choice is irreversible and there is no later turn to
@@ -302,7 +317,11 @@ def main() -> int:
     missing_total: Counter = Counter()
 
     for i, puz in enumerate(puzzles, 1):
-        r = run_one(puz, policy_factory(puz), args.max_steps)
+        try:
+            r = run_one(puz, policy_factory(puz), args.max_steps)
+        except OutOfCredit as exc:
+            print(f"\nSTOPPED after {i - 1} puzzles: {exc}", file=sys.stderr)
+            return 3
         trace = r.pop("_trace", [])
         system = r.pop("_system", "")
         if args.transcript and trace:
