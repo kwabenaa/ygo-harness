@@ -121,6 +121,11 @@ class Stats:
     #: re-ask also fails the duel is abandoned, not answered on the model's
     #: behalf - see NoAnswer.
     reasked: int = 0
+    #: Turns played with no plan at all. Never silent: a missing plan is not a
+    #: decision to improvise, it is the planning call having failed.
+    no_plan: int = 0
+    #: Plans stating no damage total, so there was nothing to check.
+    unchecked_plans: int = 0
     choices: list[int] = field(default_factory=list)
 
 
@@ -171,17 +176,32 @@ class LLMAgent:
             return
         self._plan_turn = duel.turn_count
         provider = getattr(self, "planner", self.p)
+        request = plan_prompt(
+            render_state(duel, self.db, self.viewer, turn=turn, phase=None),
+            self.objective)
         try:
-            self.plan = provider.complete(
-                self.system,
-                plan_prompt(render_state(duel, self.db, self.viewer, turn=turn,
-                             phase=None),
-                            self.objective),
-            ).strip()
+            self.plan = provider.complete(self.system, request).strip()
+            # The planning call is the longest single call of a duel, and when
+            # it runs past max_tokens it returns empty content rather than
+            # raising. That produced a run where the agent played 27 decisions
+            # with no plan and nothing said so - while the reasoning it threw
+            # away had already worked out a winning line.
+            if not self.plan:
+                self.stats.truncated += 1
+                if self.verbose:
+                    print("  [planning ran out of tokens; asking again, capped]")
+                self.plan = provider.complete(
+                    self.system, request, reasoning={"max_tokens": 2048},
+                ).strip()
         except Exception as e:                      # a failed plan is not fatal
             self.plan = ""
             if self.verbose:
                 print(f"  [planning failed: {type(e).__name__}: {e}]")
+            return
+        if not self.plan:
+            self.stats.no_plan += 1
+            if self.verbose:
+                print("  [no plan produced - the turn is being played blind]")
             return
         self.plan = self._check_damage(duel, provider, turn)
         self.trace.append({
@@ -206,9 +226,16 @@ class LLMAgent:
         """
         from engine.board import query_field
 
-        m = re.search(r"DAMAGE:[^=\n]*=\s*([\d,]+)", self.plan or "")
         info = query_field(duel)
-        if not m or info is None:
+        if not self.plan or info is None:
+            return self.plan
+        m = re.search(r"DAMAGE:[^=\n]*=\s*([\d,]+)", self.plan)
+        if not m:
+            # A plan with no arithmetic cannot be held against anything. Say
+            # so rather than passing it through as though it had been checked.
+            self.stats.unchecked_plans += 1
+            if self.verbose:
+                print("  [plan states no damage total - not checked]")
             return self.plan
         target = info.lp[1 - self.viewer]
         stated = int(m.group(1).replace(",", ""))

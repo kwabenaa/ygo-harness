@@ -173,6 +173,8 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
                                    + stats.out_of_range)
             result["truncated"] = stats.truncated
             result["reasked"] = stats.unparseable + stats.out_of_range
+            result["no_plan"] = stats.no_plan
+            result["unchecked_plans"] = stats.unchecked_plans
         result["_trace"] = getattr(p0, "trace", [])
         result["_system"] = getattr(p0, "system", "")
     except NoAnswer as exc:
@@ -313,6 +315,12 @@ def main() -> int:
         # so a run full of forced defaults measures the fallback, not the
         # model - and it looks exactly like an agent playing badly.
         print(f"  re-asked for a bare number {forced}")
+        blind = sum(r.get("no_plan", 0) for r in results)
+        unchecked = sum(r.get("unchecked_plans", 0) for r in results)
+        if blind:
+            print(f"  turns played with NO plan {blind}   <- planning failed")
+        if unchecked:
+            print(f"  plans with no damage total {unchecked}  (nothing to check)")
 
     if unhandled_total:
         print("\n  unhandled decision messages (each one is a missing decoder):")

@@ -42,7 +42,12 @@ planner:
   # clear the thinking *and* the answer. At 2048 an unbounded reasoner spends
   # the whole budget thinking and returns empty content, which the agent reads
   # as an unparseable reply and silently falls back to option 0.
-  max_tokens: 8192
+  # Measured: the planning call alone reasons past 7,200 tokens on a real
+  # puzzle and was being cut off mid-sentence at 8192, returning empty content
+  # - on Seto VS Ishizu it had already worked out a winning line and the cap
+  # threw it away. Reasoning counts against max_tokens here, so this has to
+  # clear the thinking and the answer together.
+  max_tokens: 32768
 
 smoke:
   # Free, for plumbing tests that should cost nothing.
