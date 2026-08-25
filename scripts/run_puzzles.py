@@ -26,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agents.llm_agent import NoAnswer
 from agents.random_legal import RandomLegal
 from engine.carddb import CardDB
 from engine.duel import Duel
@@ -35,11 +36,16 @@ from engine.puzzle import iter_puzzles
 #: steps than this is looping rather than playing.
 MAX_STEPS = 30_000
 
-SOLVED, UNSOLVED, STALLED, ERROR, SKIPPED = (
-    "solved", "unsolved", "stalled", "error", "skipped"
+SOLVED, UNSOLVED, STALLED, ERROR, SKIPPED, INVALID = (
+    "solved", "unsolved", "stalled", "error", "skipped", "invalid"
 )
 #: Outcomes that indict the harness rather than the policy.
 HARNESS_FAULTS = (STALLED, ERROR)
+#: Not a loss. The agent never produced a usable answer, so the duel says
+#: nothing about how well it plays - and the alternative, picking a move on
+#: its behalf, is how one puzzle got thrown by an auto-activated Raigeki
+#: Break that the model never chose.
+NOT_A_RESULT = (INVALID,)
 
 
 def write_conversation(path: Path, *, title: str, header: list[str],
@@ -166,9 +172,11 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["fallbacks"] = (stats.fallbacks + stats.unparseable
                                    + stats.out_of_range)
             result["truncated"] = stats.truncated
-            result["forced_default"] = stats.forced_default
+            result["reasked"] = stats.unparseable + stats.out_of_range
         result["_trace"] = getattr(p0, "trace", [])
         result["_system"] = getattr(p0, "system", "")
+    except NoAnswer as exc:
+        result.update(outcome=INVALID, detail=str(exc)[:200])
     except Exception as exc:                        # noqa: BLE001 - reported, not swallowed
         result.update(outcome=ERROR, detail=f"{type(exc).__name__}: {exc}"[:200])
     finally:
@@ -276,11 +284,11 @@ def main() -> int:
         tally[r["outcome"]] += 1
         unhandled_total.update(r["unhandled"])
         missing_total.update(r["missing_scripts"])
-        if args.verbose or r["outcome"] in HARNESS_FAULTS:
+        if args.verbose or r["outcome"] in HARNESS_FAULTS + NOT_A_RESULT:
             print(f'{i:>4}/{len(puzzles)}  {r["outcome"]:<8} {r["puzzle"][:56]:<58}'
                   f'{r["detail"]}')
 
-    ran = sum(tally[k] for k in (SOLVED, UNSOLVED, STALLED, ERROR))
+    ran = sum(tally[k] for k in (SOLVED, UNSOLVED, STALLED, ERROR, INVALID))
     faults = sum(tally[k] for k in HARNESS_FAULTS)
 
     print("\n" + "=" * 68)
@@ -288,13 +296,14 @@ def main() -> int:
     print(f'  ran clean     {ran - faults}'
           f'{"" if not ran else f"    {(ran - faults) / ran:.1%}"}   <- the harness number')
     print(f'  harness fault {faults}    ({tally[ERROR]} error, {tally[STALLED]} stalled)')
+    print(f'  no answer     {tally[INVALID]}    (not losses - the model never chose)')
     print(f'  solved        {tally[SOLVED]}    <- the agent number, not a harness result')
     marathons = sum(1 for r in results if r.get("marathon"))
     if marathons:
         print(f'  of which {marathons} have no engine-enforced win condition '
               f'(no aux.BeginPuzzle)')
 
-    forced = sum(r.get("forced_default", 0) for r in results)
+    forced = sum(r.get("reasked", 0) for r in results)
     asked = sum(r.get("asked", 0) for r in results)
     truncated = sum(r.get("truncated", 0) for r in results)
     if asked:
@@ -303,8 +312,7 @@ def main() -> int:
         # This is the number that invalidates a run. Option 0 is arbitrary,
         # so a run full of forced defaults measures the fallback, not the
         # model - and it looks exactly like an agent playing badly.
-        print(f"  fell back to option 0 {forced}"
-              f"{'   <- these decisions were not the model' if forced else ''}")
+        print(f"  re-asked for a bare number {forced}")
 
     if unhandled_total:
         print("\n  unhandled decision messages (each one is a missing decoder):")

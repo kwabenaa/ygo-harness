@@ -196,7 +196,24 @@ error.
     fine, but a policy that does not win them exhausts the step cap, which
     reads as a stall rather than a loss. `Puzzle.is_marathon` separates them.
 
-20. **Most "missing" card scripts are vanilla monsters.** A Normal monster
+20. **`MSG_SELECT_TRIBUTE` and `MSG_SELECT_CARD` share a header and not an
+    entry layout.** Tribute writes `code, controller, location(uint8),
+    sequence, release_param` - 11 bytes - where select-card writes a code plus
+    a full 10-byte `loc_info`, 14 in all. Parsing tribute at the card stride
+    desynchronises after the first entry and yields "codes" made of fragments
+    of the previous one, which render as `<655360>`. Two messages that look
+    interchangeable are not; check `playerop.cpp` per message.
+
+21. **The harness must never choose a move.** Falling back to option 0 on an
+    unusable reply is not a neutral default - in a chain window option 0 is
+    *activate*. Measured: one fallback auto-activated Raigeki Break, destroyed
+    the agent's own only monster, and made the puzzle unwinnable, after which
+    the run reported `unsolved` as though the agent had played it out. A duel
+    with no usable answer is reported `invalid`, which is a different fact
+    from a loss. Provider errors retry with backoff; an unparseable reply gets
+    one terse re-ask; after that the duel is abandoned.
+
+22. **Most "missing" card scripts are vanilla monsters.** A Normal monster
     has no script in CardScripts at all, so the core asks, gets nothing, and
     is correct. Reporting those buries the one case that matters — an effect
     card left with no effects, which is trap 1. `Duel._script_absence_is_notable`

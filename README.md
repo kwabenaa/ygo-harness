@@ -171,6 +171,15 @@ all-planner routing have each been fixed, and **none of them moved the solve
 rate**. That is worth stating plainly: the remaining gap is not obviously an
 information gap.
 
+Scanning 368,000 characters of the agent's own reasoning supports that. Its
+statements about the rules are correct - it knows you cannot Normal Summon in
+Main Phase 2, it quotes card text accurately. What it doubts is our
+presentation: classifying every "wait, …" self-correction put **49% on the
+board or the interface** and only 20% on rules. After the fixes above, on a
+current run, interface doubt is down to 35% and unresolved card codes from 200
+to 0. So a rules primer would spend tokens on the one thing that is not
+broken.
+
 ## Layout
 
 ```

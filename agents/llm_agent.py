@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import struct
+import time
 from dataclasses import dataclass, field
 
 from engine.constants import (
@@ -27,13 +28,33 @@ from engine.messages import (
     BATTLE_NAMES, BATTLE_TO_EP, BattleCmd, IDLE_NAMES, IdleCmd, SelectCard, SelectChain,
     SelectPlace, SelectPosition, SelectUnselect, parse_idlecmd,
     parse_select_battlecmd, parse_select_card, parse_select_chain,
-    parse_select_place, parse_select_position,
+    parse_select_place, parse_select_position, parse_select_tribute,
 )
 from engine.render import render_actions, render_state, zone_label
+from llm.events import chain_context
 from llm.events import recent as recent_events
 from llm.prompt import decision_prompt, plan_prompt, system_prompt
 
 _NUM = re.compile(r"-?\d+")
+
+#: How many times to re-ask when the provider itself fails. Network trouble is
+#: not the model failing, and killing a half-hour run on one dropped
+#: connection would conflate infrastructure with capability.
+PROVIDER_ATTEMPTS = 3
+
+
+class NoAnswer(RuntimeError):
+    """The model never produced a usable choice.
+
+    Raised instead of picking a move. The harness used to fall back to option
+    0, which is not a neutral default: in a chain window option 0 is
+    *activate*, and on one measured puzzle that fallback activated Raigeki
+    Break, destroyed the agent's own only monster and made the puzzle
+    unwinnable - after which the run reported `unsolved`, as though the agent
+    had played it out and lost. A duel we could not get an answer for is not a
+    duel the agent lost, and reporting them alike hides the only fact that
+    matters about it.
+    """
 
 
 class _CardMenu:
@@ -96,10 +117,10 @@ class Stats:
     fallbacks: int = 0
     #: Replies cut off mid-reasoning, before any answer was produced.
     truncated: int = 0
-    #: Retries that still failed, so the agent fell back to option 0. This is
-    #: the number that invalidates a run: option 0 is arbitrary, and a duel
-    #: full of them measures the fallback, not the model.
-    forced_default: int = 0
+    #: Replies that carried no usable index and had to be re-asked. If the
+    #: re-ask also fails the duel is abandoned, not answered on the model's
+    #: behalf - see NoAnswer.
+    reasked: int = 0
     choices: list[int] = field(default_factory=list)
 
 
@@ -172,7 +193,7 @@ class LLMAgent:
     # ------------------------------------------------------------ helpers
 
     def _ask(self, duel, cmd, n_options: int, turn: int | None = None,
-             menu_names: dict | None = None) -> int:
+             menu_names: dict | None = None, note: str = "") -> int:
         """Ask the model to choose among `n_options`. Returns an index."""
         # What the engine reported since we last acted, then what we did.
         # Board state cannot express either: an effect being negated, a card
@@ -182,7 +203,8 @@ class LLMAgent:
         self._ensure_plan(duel, turn)
         body = decision_prompt(
             render_state(duel, self.db, self.viewer, turn=turn)
-            + "\nACTIONS\n" + render_actions(self.db, cmd, names=menu_names),
+            + "\nACTIONS\n" + (f"({note})\n" if note else "")
+            + render_actions(self.db, cmd, names=menu_names),
             history=events,
             n_options=n_options,
             plan=self.plan,
@@ -191,15 +213,23 @@ class LLMAgent:
         step = {"n": self.stats.asked, "shown": body, "reply": "", "chose": None,
                 "model": getattr(self.p, "model", "?")}
         self.trace.append(step)
-        try:
-            reply = self.p.complete(self.system, body)
-        except Exception as e:                     # network/provider failure
-            self.stats.fallbacks += 1
-            self.stats.forced_default += 1
-            step["reply"] = f"<provider error: {type(e).__name__}: {e}>"
-            if self.verbose:
-                print(f"  [provider error: {type(e).__name__}: {e}]")
-            return 0
+        reply, last_error = "", None
+        for attempt in range(PROVIDER_ATTEMPTS):
+            try:
+                reply = self.p.complete(self.system, body)
+                break
+            except Exception as e:                 # network/provider failure
+                last_error = e
+                self.stats.fallbacks += 1
+                if self.verbose:
+                    print(f"  [provider error {attempt + 1}/{PROVIDER_ATTEMPTS}: "
+                          f"{type(e).__name__}: {e}]")
+                time.sleep(2 ** attempt)
+        else:
+            step["reply"] = (f"<provider error: {type(last_error).__name__}: "
+                             f"{last_error}>")
+            raise NoAnswer(f"provider failed {PROVIDER_ATTEMPTS}x: "
+                           f"{type(last_error).__name__}: {last_error}")
         # A reasoning model with no budget can spend the whole max_tokens
         # thinking and return nothing. Measured on one puzzle: 7 of 18 replies
         # came back empty after ~7k tokens of reasoning, and each one silently
@@ -217,24 +247,44 @@ class LLMAgent:
         step["reply"] = reply
         step["reasoning"] = getattr(self.p, "last_reasoning", "") or ''
 
-        m = _NUM.search(reply)
-        if not m:
-            self.stats.unparseable += 1
-            self.stats.forced_default += 1
+        idx = self._read_choice(reply, n_options)
+        if idx is None:
+            # One terse re-ask before giving up: the thinking is already done,
+            # what failed was producing the number.
             if self.verbose:
-                print(f"  [unparseable reply: {reply[:80]!r}]")
-            return 0
-        idx = int(m.group())
-        if not (0 <= idx < n_options):
-            self.stats.out_of_range += 1
-            self.stats.forced_default += 1
-            if self.verbose:
-                print(f"  [out of range: {idx} not in 0..{n_options-1}]")
-            return 0
+                print(f"  [no usable index in {reply[:60]!r}; re-asking]")
+            try:
+                reply = self.p.complete(
+                    self.system,
+                    body + f"\n\nReply with ONLY a single number from 0 to "
+                           f"{n_options - 1}. No words, no explanation.",
+                    reasoning={"max_tokens": 128},
+                )
+            except Exception as e:
+                raise NoAnswer(f"re-ask failed: {type(e).__name__}: {e}") from e
+            step["reply"] = f"{step['reply']}\n[re-asked] {reply}"
+            idx = self._read_choice(reply, n_options)
+        if idx is None:
+            raise NoAnswer(f"no usable choice among {n_options} options; "
+                           f"last reply {reply[:120]!r}")
         self.stats.choices.append(idx)
         step["chose"] = idx
         if self.verbose:
             print(f"  [chose {idx}] {reply[:100]}")
+        return idx
+
+    def _read_choice(self, reply: str, n_options: int) -> int | None:
+        """The chosen index, or None when the reply does not contain one."""
+        m = _NUM.search(reply or "")
+        if not m:
+            self.stats.unparseable += 1
+            return None
+        idx = int(m.group())
+        if not (0 <= idx < n_options):
+            self.stats.out_of_range += 1
+            if self.verbose:
+                print(f"  [out of range: {idx} not in 0..{n_options - 1}]")
+            return None
         return idx
 
     # ------------------------------------------------------------ policy
@@ -279,7 +329,8 @@ class LLMAgent:
             # goes to the model rather than to a default. Declining is offered
             # as the last option, but only when the engine allows it.
             menu = _ChainMenu(ch, self.db)
-            i = self._ask(duel, menu, len(menu.actions()))
+            i = self._ask(duel, menu, len(menu.actions()),
+                          note=chain_context(duel, self.db, self.viewer))
             picked = menu.actions()[i]
             if picked[0] == -1:
                 self.history.append("you declined to respond")
@@ -290,7 +341,9 @@ class LLMAgent:
         if msg.id == MSG_SELECT_UNSELECT_CARD:
             return SelectUnselect.encode(0)
         if msg.id in (MSG_SELECT_CARD, MSG_SELECT_TRIBUTE):
-            sc = parse_select_card(msg.payload)
+            # Different entry widths; see parse_select_tribute.
+            sc = (parse_select_tribute if msg.id == MSG_SELECT_TRIBUTE
+                  else parse_select_card)(msg.payload)
             # "Which card do you add / target / tribute" is a real strategic
             # decision - Engage! searching Hornet Drones vs Widow Anchor is a
             # different game - so it goes to the model whenever there is an
@@ -314,7 +367,14 @@ class LLMAgent:
             if len(free) == 1:
                 return SelectPlace.encode([free[0]] * need)
             menu = _PlaceMenu(sp, self.viewer)
-            i = self._ask(duel, menu, len(free), menu_names=menu.names(self.db))
+            # The message carries zones and nothing else, so name the card
+            # from what we just did. Without it the menu is five identical
+            # zone names and no indication of what is being placed - which
+            # the transcripts show the model guessing at.
+            placing = self.history[-1] if self.history else ""
+            i = self._ask(duel, menu, len(free), menu_names=menu.names(self.db),
+                          note=f"choosing a zone for: {placing}" if placing
+                          else "choosing a zone")
             chosen = free[i]
             self.history.append(
                 f"you placed in {zone_label(*chosen, viewer=self.viewer)}")

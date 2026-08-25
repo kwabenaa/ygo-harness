@@ -125,6 +125,13 @@ def describe(msg, db, viewer: int) -> str | None:
                 return f"{_who(player, viewer)} chose {describe_hint(desc, db)}"
             return None
 
+        if mid == K.MSG_CHAINING:
+            code = r.u32()
+            r.loc()
+            trig_con = r.u8()
+            return (f"{_who(trig_con, viewer)} activated {db.name(code)}"
+                    " - this is your window to respond")
+
         if mid in (K.MSG_SUMMONING, K.MSG_SPSUMMONING, K.MSG_FLIPSUMMONING):
             code = r.u32()
             con, _loc, _seq, _pos = r.loc()
@@ -229,6 +236,28 @@ def describe(msg, db, viewer: int) -> str | None:
         # duel. Report it as such rather than inventing an event.
         return f"<undecodable {msg.name}>"
     return None
+
+
+def chain_context(duel, db, viewer: int) -> str:
+    """What the pending chain window is a response to.
+
+    A chain window arrives as a list of cards plus "decline to respond", with
+    nothing saying what is being responded to. Reading the transcripts, that
+    is the single most common thing the model second-guesses: "this implies
+    I'm currently responding to something".
+    """
+    for m in reversed(duel.since_last_decision):
+        if m.id != K.MSG_CHAINING:
+            continue
+        try:
+            r = _R(m.payload)
+            code = r.u32()
+            r.loc()
+            who = _who(r.u8(), viewer)
+        except (IndexError, struct.error):
+            return ""
+        return f"{who} just activated {db.name(code)}. You may respond to it."
+    return ""
 
 
 def recent(duel, db, viewer: int, limit: int = 12) -> list[str]:

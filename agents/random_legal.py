@@ -31,7 +31,7 @@ from engine.messages import (
     parse_announce_attrib, parse_announce_card, parse_announce_number,
     parse_announce_race, parse_idlecmd, parse_select_battlecmd,
     parse_select_card, parse_select_chain, parse_select_counter,
-    parse_select_option, parse_select_place, parse_select_position,
+    parse_select_option, parse_select_place, parse_select_position, parse_select_tribute,
     parse_select_sum, parse_sort_card,
 )
 
@@ -77,7 +77,9 @@ class RandomLegal:
             return SelectUnselect.encode(0)
 
         if msg.id in (MSG_SELECT_CARD, MSG_SELECT_TRIBUTE):
-            sc = parse_select_card(msg.payload)
+            # Different entry widths; see parse_select_tribute.
+            sc = (parse_select_tribute if msg.id == MSG_SELECT_TRIBUTE
+                  else parse_select_card)(msg.payload)
             n = max(sc.min, 1)
             avail = max(len(sc.codes), n)
             picks = self.rng.sample(range(avail), min(n, avail))

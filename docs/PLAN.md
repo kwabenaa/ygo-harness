@@ -577,9 +577,26 @@ none of which moved the solve rate:
    the planner.
 
 **The honest reading:** the harness was badly incomplete and is now largely
-not, but the agent's failure was not primarily an information failure. The
-untested lever is the planner itself - `qwen3.7-flash` on a 256-token
-reasoning budget, which is very little for a multi-step OTK.
+not, but the agent's failure was not primarily an information failure.
+
+Removing the planner's reasoning cap did not solve the puzzle either, and it
+exposed something worse. Unbounded reasoning ran past `max_tokens` on 7 of 18
+decisions and returned empty content, and each of those silently became "take
+option 0". On the 2/10 puzzle that fallback auto-activated Raigeki Break,
+destroyed the agent's own only monster, and made the puzzle unwinnable - after
+which the run reported `unsolved`. **The harness threw the puzzle, and the
+result blamed the agent.** Option 0 is not a neutral default; in a chain
+window it is *activate*.
+
+The harness no longer chooses moves at all. Provider errors retry with
+backoff, an unusable reply gets one terse re-ask, and after that the duel is
+abandoned and reported `invalid` - a different fact from a loss.
+
+A scan of 368,000 characters of the agent's reasoning says the remaining gap
+is not rules knowledge: its mechanics claims are correct, and 49% of its
+self-corrections were about our presentation versus 20% about rules. So the
+next levers are a stronger planner, or search over candidate lines - not a
+rules primer.
 
 **Working protocol.** A full Master Rule 5 run is ~30 minutes and several
 hundred calls, and answers a question one puzzle already answers. Iterate on

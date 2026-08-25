@@ -179,6 +179,34 @@ def parse_select_card(payload: bytes) -> SelectCard:
     return SelectCard(player, cancelable, mn, mx, codes, places)
 
 
+def parse_select_tribute(payload: bytes) -> SelectCard:
+    """MSG_SELECT_TRIBUTE - same header as MSG_SELECT_CARD, different entries.
+
+    Per card the core writes `code, controller, location, sequence,
+    release_param` - **11 bytes**, with a uint8 location and a trailing uint8 -
+    where MSG_SELECT_CARD writes a code plus a full 10-byte loc_info, 14 in
+    all. Reading tribute entries at the card stride desynchronised the list
+    after the first, exactly as the card list did before it was fixed, and
+    produced menu entries whose "codes" were fragments of the previous entry.
+    Those render as `<655360>`, so the agent was choosing tributes from a list
+    of cards that did not exist.
+    """
+    r = _Reader(payload)
+    player, cancelable = r.u8(), bool(r.u8())
+    mn, mx, count = r.u32(), r.u32(), r.u32()
+    codes, places = [], []
+    try:
+        for _ in range(count):
+            codes.append(r.u32())
+            con, loc = r.u8(), r.u8()
+            seq = r.u32()
+            r.u8()                        # release_param
+            places.append((con, loc, seq))
+    except (IndexError, struct.error):
+        pass
+    return SelectCard(player, cancelable, mn, mx, codes, places)
+
+
 @dataclass
 class SelectPlace:
     """A "choose a zone" decision point (MSG_SELECT_PLACE / MSG_SELECT_DISFIELD).
