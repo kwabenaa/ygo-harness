@@ -2,7 +2,15 @@
 
 An LLM agent and benchmark for Yu-Gi-Oh, built directly on the game's real rules engine.
 
-> **Status: M0 — engine spike.** Nothing works yet.
+> **Status: M0 complete.** The engine builds on Apple Silicon, duels run end to
+> end, and determinism is proven. No agent yet.
+
+```
+50 full duels in 0.39s  ->  7.9 ms/duel, 127 duels/sec
+~989 engine steps per duel -> 125,631 steps/sec
+same seed -> byte-identical message stream
+diff seed -> genuinely different duel
+```
 
 ## Why this exists
 
@@ -45,6 +53,24 @@ engine-backed search yields the best achievable value `V*`; the agent scores `V`
 **regret = V\* − V**. This handles "you got Ashed, so a weaker board was correct" natively.
 
 **The search is the referee, not just a stronger agent.**
+
+## What M0 established
+
+- **ygopro-core builds on arm64 macOS** and exports all 13 `OCG_*` functions.
+  `scripts/build_core.sh` reproduces it; see the header comment for the two
+  upstream traps (stale `meson.build`, and Lua having to be compiled as C++).
+- **Replay-based state restore is cheap.** At ~126k engine steps/sec, replaying
+  a turn prefix to reconstruct a node costs single-digit milliseconds. The
+  search layer is affordable.
+- **The engine does not shuffle.** `Processors::Startup` draws `start_count`
+  cards off the back of the main deck and nothing more; shuffling is the
+  client's job. So reproducing a duel needs *two* seeds - one for the deal, one
+  for the engine's in-duel randomness. The upside is that the deal is ours to
+  control, which is exactly what sealed benchmark hands require: order the list
+  and you have dealt an exact opening hand.
+- **The current card pool covers the target deck.** All 36 distinct cards in the
+  Sky Striker list resolve in BabelCDB with Lua scripts present, including every
+  card newer than the assistant's knowledge cutoff.
 
 ## Layout
 

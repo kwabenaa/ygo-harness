@@ -27,3 +27,6 @@ agents/runs/
 engine/lib/*.dylib
 engine/lib/CORE_COMMIT
 engine/lib/LUA_COMMIT
+data/BabelCDB/
+data/CardScripts/
+data/DATA_COMMITS
