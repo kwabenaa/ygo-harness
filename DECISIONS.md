@@ -5,6 +5,45 @@ deliberately put off. Newest first.
 
 ---
 
+## The agent never retraces, so plan adherence is the architecture
+
+**Status:** decided. Extends "No rollback at play time" below, and settles a
+question that entry left open.
+
+Two architectures were on the table once the agent started failing on
+*sequencing* - producing a correct, lethal plan and then executing its steps
+out of order until the key action stopped being legal.
+
+- **Search as the executor.** Explore action sequences in the engine, roll
+  back, keep one that reaches lethal, play that. Adherence is redundant by
+  construction: you cannot deviate from a sequence you found by walking it.
+- **Plan adherence.** The agent commits to one action at a time and is held
+  against its own plan without ever speculating.
+
+**Chosen: adherence.** Not because search is weaker - it is stronger - but
+because retracing is not something a duel permits. Rolling back means undoing
+the opponent's negations and chains too, and there is no version of that which
+works against a person: you cannot ask an opponent to take back their action.
+An agent built on rollback is an agent that only functions in a dummy duel.
+
+The mode the project actually wants forces the same answer. Search-as-agent
+needs rollback during play, and rollback does not work over a network - EDOPro
+owns the core and nothing on a remote server can be undone. So in the mode
+where a human duels the agent, search is unavailable, and an agent that
+depends on it does not play at all.
+
+**What this costs, stated plainly.** Without speculative execution a plan
+cannot be *verified* as achievable, only observed to have died. There is no
+"try it and see" before committing. The compensating mechanism has to be
+noticing quickly and re-planning, rather than looking ahead.
+
+**What is unaffected.** Search as *referee* stays: it replays a recorded
+(seed, response log) offline, after the duel, so it still scores duels played
+over a network and the regret metric survives intact. Rollback offline is
+fine; rollback during play is not.
+
+---
+
 ## Puzzles are a debug tool; the sealed splits stay the benchmark
 
 **Status:** decided.

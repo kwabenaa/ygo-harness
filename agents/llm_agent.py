@@ -30,6 +30,7 @@ from engine.messages import (
     parse_select_battlecmd, parse_select_card, parse_select_chain,
     parse_select_place, parse_select_position, parse_select_tribute,
 )
+from agents.plan_tracker import PlanTracker
 from engine.render import render_actions, render_state, zone_label
 from llm.events import chain_context
 from llm.events import recent as recent_events
@@ -141,6 +142,7 @@ class LLMAgent:
         #: pass their own system prompt; it is still built once and reused,
         #: which is what keeps the cached prefix intact.
         self.system = system if system is not None else system_prompt(db, deck_codes)
+        self.deck_codes = list(deck_codes)
         self.viewer = viewer
         self.verbose = verbose
         self.stats = Stats()
@@ -152,6 +154,8 @@ class LLMAgent:
         #: A line to lethal, written once per turn and carried into every
         #: decision that turn.
         self.plan = ""
+        #: Where the agent is in its own plan. Rebuilt with each plan.
+        self.tracker = PlanTracker()
         self.planning = planning
         self.objective = objective
         self._plan_turn = -1
@@ -204,6 +208,10 @@ class LLMAgent:
                 print("  [no plan produced - the turn is being played blind]")
             return
         self.plan = self._check_damage(duel, provider, turn)
+        # Names come from this duel's own card list: a plan refers to cards by
+        # name and nothing else on the line is reliable to match on.
+        self.tracker = PlanTracker.parse(
+            self.plan, [self.db.name(c) for c in self.deck_codes])
         self.trace.append({
             "n": 0, "shown": "<planning request>", "reply": self.plan,
             "chose": None, "model": getattr(provider, "model", "?"),
@@ -269,6 +277,8 @@ class LLMAgent:
         # like any other board.
         events = self.history[-6:] + recent_events(duel, self.db, self.viewer)
         self._ensure_plan(duel, turn)
+        menu_labels = self._labels(cmd, menu_names)
+        progress = self.tracker.render(menu_labels)
         body = decision_prompt(
             render_state(duel, self.db, self.viewer, turn=turn,
                              phase=None)
@@ -276,7 +286,7 @@ class LLMAgent:
             + render_actions(self.db, cmd, names=menu_names),
             history=events,
             n_options=n_options,
-            plan=self.plan,
+            plan=progress or self.plan,
         )
         self.stats.asked += 1
         step = {"n": self.stats.asked, "shown": body, "reply": "", "chose": None,
@@ -338,9 +348,26 @@ class LLMAgent:
                            f"last reply {reply[:120]!r}")
         self.stats.choices.append(idx)
         step["chose"] = idx
+        if 0 <= idx < len(menu_labels):
+            self.tracker.note_choice(menu_labels[idx], menu_labels)
         if self.verbose:
             print(f"  [chose {idx}] {reply[:100]}")
         return idx
+
+    def _labels(self, cmd, menu_names) -> list[str]:
+        """The menu as plain strings, in the order the model sees it."""
+        from engine.messages import IDLE_NAMES
+
+        table = menu_names if menu_names is not None else IDLE_NAMES
+        out = []
+        try:
+            for kind, _i, card in cmd.actions():
+                verb = table.get(kind, "choose" if kind == 99 else str(kind))
+                out.append(f"{verb}: {self.db.name(card.code)}" if card is not None
+                           else str(verb))
+        except Exception:
+            return []
+        return out
 
     def _read_choice(self, reply: str, n_options: int) -> int | None:
         """The chosen index, or None when the reply does not contain one."""

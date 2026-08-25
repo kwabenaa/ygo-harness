@@ -174,6 +174,11 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["truncated"] = stats.truncated
             result["reasked"] = stats.unparseable + stats.out_of_range
             result["no_plan"] = stats.no_plan
+            tracker = getattr(p0, "tracker", None)
+            if tracker is not None:
+                result["skipped_ahead"] = tracker.skipped_ahead
+                result["plan_steps"] = len(tracker.steps)
+                result["plan_done"] = sum(1 for st in tracker.steps if st.done)
             result["unchecked_plans"] = stats.unchecked_plans
         result["_trace"] = getattr(p0, "trace", [])
         result["_system"] = getattr(p0, "system", "")
@@ -321,6 +326,13 @@ def main() -> int:
             print(f"  turns played with NO plan {blind}   <- planning failed")
         if unchecked:
             print(f"  plans with no damage total {unchecked}  (nothing to check)")
+        steps = sum(r.get("plan_steps", 0) for r in results)
+        if steps:
+            done = sum(r.get("plan_done", 0) for r in results)
+            skipped = sum(r.get("skipped_ahead", 0) for r in results)
+            print(f"  plan steps carried out {done}/{steps}")
+            print(f"  taken out of order {skipped}"
+                  f"{'   <- the sequencing failure' if skipped else ''}")
 
     if unhandled_total:
         print("\n  unhandled decision messages (each one is a missing decoder):")

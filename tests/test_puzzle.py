@@ -451,3 +451,60 @@ def test_graveyard_is_not_truncated():
     line = " ".join(render_side(db, b, viewer=0, label="YOU"))
     missing = [db.name(c) for c in codes if db.name(c) not in line]
     assert not missing, f"graveyard truncated, hiding: {missing}"
+
+
+def test_plan_tracker_catches_the_ordering_failure():
+    """Taking a later plan step while the next one is on the menu is the bug.
+
+    On Seto VS Ishizu the agent had a correct lethal plan and ran step 4
+    before step 3. Without the Token from step 3 it never had three tributes,
+    so `summon: Obelisk` - the whole point of the plan - was never offered in
+    a single menu afterwards. Both steps were legal at the moment it chose, so
+    nothing in the prompt told it order mattered.
+
+    The tracker reads only the legal-action menu the engine already provides.
+    It never speculates and never asks for a rollback: see DECISIONS.md, "The
+    agent never retraces".
+    """
+    from agents.plan_tracker import PlanTracker
+
+    plan = (
+        "1. Activate Fiend's Sanctuary to Special Summon a Metal Fiend Token.\n"
+        "2. Activate The Monarchs Stormforth to tribute Kelbek.\n"
+        "3. Normal Summon Obelisk the Tormentor.\n"
+        "DAMAGE: 4000 = 4000"
+    )
+    cards = ["Fiend's Sanctuary", "The Monarchs Stormforth", "Obelisk the Tormentor"]
+    menu = ["activate: Fiend's Sanctuary", "activate: The Monarchs Stormforth",
+            "to battle phase"]
+
+    # The DAMAGE line is commentary, not a step.
+    assert len(PlanTracker.parse(plan, cards).steps) == 3
+
+    out_of_order = PlanTracker.parse(plan, cards)
+    out_of_order.note_choice("activate: The Monarchs Stormforth", menu)
+    assert out_of_order.skipped_ahead == 1, "did not notice the skipped step"
+
+    in_order = PlanTracker.parse(plan, cards)
+    in_order.note_choice("activate: Fiend's Sanctuary", menu)
+    assert in_order.skipped_ahead == 0
+    assert in_order.steps[0].done
+
+    # And the agent is told where it is, with the option number to use.
+    rendered = in_order.render(menu)
+    assert "NEXT" in rendered and "option 1" in rendered, rendered
+
+
+def test_plan_tracker_says_when_a_step_is_unreachable():
+    """A step the menu cannot offer is a dead plan, and must be called one.
+
+    Without rollback the plan cannot be verified ahead of time - it can only
+    be observed to have died. Saying so is the entire compensating mechanism.
+    """
+    from agents.plan_tracker import PlanTracker
+
+    plan = "1. Normal Summon Obelisk the Tormentor."
+    tracker = PlanTracker.parse(plan, ["Obelisk the Tormentor"])
+    rendered = tracker.render(["to battle phase", "to end phase"])
+    assert "NOT available" in rendered, rendered
+    assert "the plan is dead" in rendered, rendered
