@@ -78,13 +78,13 @@ class HierarchicalAgent(LLMAgent):
             return "chain resolved"
         return None
 
-    def _ask(self, duel, cmd, n_options: int, turn=None) -> int:
+    def _ask(self, duel, cmd, n_options: int, turn=None, **kw) -> int:
         why = self._why_deliberate(duel)
         self.split.note(why)
         self.p = self.planner if why else self.executor
         if self.verbose and why:
             print(f"  [planner: {why}]")
-        return super()._ask(duel, cmd, n_options, turn=turn)
+        return super()._ask(duel, cmd, n_options, turn=turn, **kw)
 
     @property
     def usage_summary(self) -> str:

@@ -310,3 +310,59 @@ def parse_select_chain(payload: bytes) -> SelectChain:
         desc, mode = r.u64(), r.u8()
         opts.append(CardRef(code, con, loc, seq, desc, mode))
     return SelectChain(player, spe_count, forced, hint, other, opts)
+
+
+# Battle command types (playerop.cpp validator). Response is (index << 16) | type,
+# the same encoding as idle commands.
+BATTLE_ACTIVATE = 0
+BATTLE_ATTACK = 1
+BATTLE_TO_M2 = 2
+BATTLE_TO_EP = 3
+
+BATTLE_NAMES = {
+    BATTLE_ACTIVATE: "activate",
+    BATTLE_ATTACK: "attack with",
+    BATTLE_TO_M2: "to main phase 2",
+    BATTLE_TO_EP: "to end phase",
+}
+
+
+@dataclass
+class BattleCmd:
+    """The legal-action menu for a battle phase decision point."""
+    player: int
+    activatable: list[CardRef]
+    attackable: list[CardRef]
+    to_m2: bool
+    to_ep: bool
+
+    def actions(self) -> list[tuple[int, int, CardRef | None]]:
+        out: list[tuple[int, int, CardRef | None]] = []
+        out += [(BATTLE_ACTIVATE, i, c) for i, c in enumerate(self.activatable)]
+        out += [(BATTLE_ATTACK, i, c) for i, c in enumerate(self.attackable)]
+        if self.to_m2:
+            out.append((BATTLE_TO_M2, 0, None))
+        if self.to_ep:
+            out.append((BATTLE_TO_EP, 0, None))
+        return out
+
+    @staticmethod
+    def encode(cmd_type: int, index: int = 0) -> bytes:
+        return struct.pack("<i", (index << 16) | cmd_type)
+
+
+def parse_select_battlecmd(payload: bytes) -> BattleCmd:
+    r = _Reader(payload)
+    player = r.u8()
+    activatable = r.cards(with_desc=True)
+    # Attackable entries are 8 bytes: code(4) con(1) loc(1) seq(1)
+    # direct_attackable(1) - note `sequence` is uint8 here, and there is a
+    # trailing flag the other lists do not have.
+    attackable = []
+    for _ in range(r.u32()):
+        code, con, loc, seq = r.u32(), r.u8(), r.u8(), r.u8()
+        direct = r.u8()
+        ref = CardRef(code, con, loc, seq)
+        ref.client_mode = direct          # reuse the field for "can attack directly"
+        attackable.append(ref)
+    return BattleCmd(player, activatable, attackable, bool(r.u8()), bool(r.u8()))

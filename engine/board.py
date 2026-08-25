@@ -164,7 +164,7 @@ SZONE_SLOTS = 8
 class FieldInfo:
     """The cheap whole-field summary from OCG_DuelQueryField."""
     duel_options: int
-    lp: tuple[int, int]
+    lp: tuple[int, int]   #: signed - life points legitimately go negative
     chain_length: int = 0
 
 
@@ -192,7 +192,9 @@ def query_field(duel) -> FieldInfo | None:
 
     lps = []
     for _ in range(2):
-        (lp,) = struct.unpack_from("<I", raw, off)
+        # int32_t in the core: LP goes negative before the win check
+        # (`lp <= 0`) fires, so an unsigned read reports ~4.29 billion.
+        (lp,) = struct.unpack_from("<i", raw, off)
         off += 4
         lps.append(lp)
         for _ in range(MZONE_SLOTS + SZONE_SLOTS):

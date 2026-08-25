@@ -24,14 +24,26 @@ from engine.constants import (
     MSG_SELECT_YESNO, MSG_SORT_CARD,
 )
 from engine.messages import (
-    IdleCmd, SelectCard, SelectChain, SelectPlace, SelectPosition,
-    SelectUnselect, parse_idlecmd, parse_select_card, parse_select_chain,
+    BATTLE_NAMES, BATTLE_TO_EP, BattleCmd, IDLE_NAMES, IdleCmd, SelectCard, SelectChain,
+    SelectPlace, SelectPosition, SelectUnselect, parse_idlecmd,
+    parse_select_battlecmd, parse_select_card, parse_select_chain,
     parse_select_place, parse_select_position,
 )
 from engine.render import render_actions, render_state
 from llm.prompt import decision_prompt, system_prompt
 
 _NUM = re.compile(r"-?\d+")
+
+
+class _CardMenu:
+    """Adapts a SelectCard into a menu render_actions() can print."""
+
+    def __init__(self, sc, db):
+        self.sc, self.db = sc, db
+
+    def actions(self):
+        from engine.board import CardInfo
+        return [(99, i, CardInfo(code=c)) for i, c in enumerate(self.sc.codes)]
 
 
 class _ChainMenu:
@@ -71,12 +83,14 @@ class LLMAgent:
 
     # ------------------------------------------------------------ helpers
 
-    def _ask(self, duel, cmd, n_options: int, turn: int | None = None) -> int:
+    def _ask(self, duel, cmd, n_options: int, turn: int | None = None,
+             menu_names: dict | None = None) -> int:
         """Ask the model to choose among `n_options`. Returns an index."""
         body = decision_prompt(
             render_state(duel, self.db, self.viewer, turn=turn)
-            + "\nACTIONS\n" + render_actions(self.db, cmd),
+            + "\nACTIONS\n" + render_actions(self.db, cmd, names=menu_names),
             history=self.history,
+            n_options=n_options,
         )
         self.stats.asked += 1
         try:
@@ -120,12 +134,23 @@ class LLMAgent:
             i = self._ask(duel, cmd, len(acts))
             kind, idx, card = acts[i]
             label = self.db.name(card.code) if card else ""
-            self.history.append(f"you chose: {kind}:{idx} {label}".strip())
+            verb = IDLE_NAMES.get(kind, str(kind))
+            self.history.append(f"you {verb} {label}".strip())
             return IdleCmd.encode(kind, idx)
 
         # --- mechanical: cheap defaults ---------------------------------
         if msg.id == MSG_SELECT_BATTLECMD:
-            return struct.pack("<i", 3)               # to end phase
+            cmd = parse_select_battlecmd(msg.payload)
+            acts = cmd.actions()
+            if not acts:
+                return BattleCmd.encode(BATTLE_TO_EP)
+            self.viewer = cmd.player
+            i = self._ask(duel, cmd, len(acts), menu_names=BATTLE_NAMES)
+            kind, idx, card = acts[i]
+            label = self.db.name(card.code) if card else ""
+            self.history.append(
+                f"battle: {BATTLE_NAMES.get(kind, kind)} {label}".strip())
+            return BattleCmd.encode(kind, idx)
         if msg.id == MSG_SELECT_CHAIN:
             ch = parse_select_chain(msg.payload)
             if not ch.options:
@@ -147,7 +172,20 @@ class LLMAgent:
             return SelectUnselect.encode(0)
         if msg.id in (MSG_SELECT_CARD, MSG_SELECT_TRIBUTE):
             sc = parse_select_card(msg.payload)
-            return SelectCard.encode(list(range(max(sc.min, 1))))
+            # "Which card do you add / target / tribute" is a real strategic
+            # decision - Engage! searching Hornet Drones vs Widow Anchor is a
+            # different game - so it goes to the model whenever there is an
+            # actual choice to make.
+            if sc.min == sc.max == len(sc.codes) or len(sc.codes) <= 1:
+                return SelectCard.encode(list(range(max(sc.min, 1))))
+            self.viewer = sc.player
+            menu = _CardMenu(sc, self.db)
+            i = self._ask(duel, menu, len(menu.actions()))
+            picked = menu.actions()[i][1]
+            self.history.append(f"you chose {self.db.name(sc.codes[picked])}")
+            need = max(sc.min, 1)
+            rest = [j for j in range(len(sc.codes)) if j != picked]
+            return SelectCard.encode(sorted([picked] + rest[:need - 1]))
         if msg.id in (MSG_SELECT_PLACE, MSG_SELECT_DISFIELD):
             sp = parse_select_place(msg.payload)
             free = sp.available()

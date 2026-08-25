@@ -20,10 +20,10 @@ from engine.constants import (
     MSG_SELECT_DISFIELD,
 )
 from engine.messages import (
-    IdleCmd, SelectCard, SelectChain, SelectPlace, SelectPosition,
-    SelectUnselect, parse_idlecmd,
-    parse_select_card, parse_select_chain, parse_select_place,
-    parse_select_position,
+    BATTLE_ATTACK, BATTLE_TO_EP, BattleCmd, IdleCmd, SelectCard, SelectChain,
+    SelectPlace, SelectPosition, SelectUnselect, parse_idlecmd,
+    parse_select_battlecmd, parse_select_card, parse_select_chain,
+    parse_select_place, parse_select_position,
 )
 
 
@@ -42,9 +42,16 @@ class RandomLegal:
             return IdleCmd.encode(t, i)
 
         if msg.id == MSG_SELECT_BATTLECMD:
-            # Battle types: 0 activate, 1 attack, 2 to M2, 3 to EP. Without
-            # parsing the payload only "to end phase" is unconditionally safe.
-            return struct.pack("<i", 3)
+            cmd = parse_select_battlecmd(msg.payload)
+            acts = cmd.actions()
+            if not acts:
+                return BattleCmd.encode(BATTLE_TO_EP)
+            # Prefer attacking when possible - a baseline that never attacks
+            # makes every game a deck-out race and measures nothing.
+            attacks = [a for a in acts if a[0] == BATTLE_ATTACK]
+            pool = attacks if (attacks and self.rng.random() < 0.8) else acts
+            k, i, _ = self.rng.choice(pool)
+            return BattleCmd.encode(k, i)
 
         if msg.id == MSG_SELECT_CHAIN:
             ch = parse_select_chain(msg.payload)

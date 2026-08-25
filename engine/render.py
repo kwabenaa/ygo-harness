@@ -91,7 +91,7 @@ def render_state(duel, db, viewer: int, *, turn: int | None = None,
     return "\n".join(lines)
 
 
-def render_actions(db, cmd) -> str:
+def render_actions(db, cmd, names: dict | None = None) -> str:
     """The legal-action menu, numbered.
 
     This is the half of the prompt that makes an illegal move impossible: the
@@ -100,9 +100,10 @@ def render_actions(db, cmd) -> str:
     """
     from .messages import IDLE_NAMES
 
+    table = names if names is not None else IDLE_NAMES
     lines = []
     for i, (kind, idx, card) in enumerate(cmd.actions()):
-        verb = IDLE_NAMES.get(kind, str(kind))
+        verb = table.get(kind, "choose" if kind == 99 else str(kind))
         if card is None:
             lines.append(f"  {i:>2}) {verb}")
         else:

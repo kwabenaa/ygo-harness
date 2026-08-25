@@ -60,11 +60,17 @@ def system_prompt(db, deck_codes: list[int]) -> str:
     )
 
 
-def decision_prompt(state_text: str, *, history: list[str] | None = None) -> str:
+def decision_prompt(state_text: str, *, history: list[str] | None = None,
+                    n_options: int | None = None) -> str:
     """The volatile half: what just happened, the board, and the options."""
     parts = []
     if history:
         parts.append("RECENT EVENTS\n" + "\n".join(f"  {h}" for h in history[-8:]))
     parts.append(state_text)
-    parts.append("Reply with only the number of your chosen action.")
+    if n_options:
+        # Stating the range explicitly: models otherwise return indices past
+        # the end of the menu, which costs a wasted call and a fallback.
+        parts.append(f"Reply with only a number from 0 to {n_options - 1}.")
+    else:
+        parts.append("Reply with only the number of your chosen action.")
     return "\n\n".join(parts)
