@@ -124,6 +124,8 @@ class Puzzle:
     rule: int = DEFAULT_PUZZLE_RULE
     lp: dict[int, int] = field(default_factory=dict)
     cards: tuple[PuzzleCard, ...] = ()
+    #: Whether the script actually calls aux.BeginPuzzle().
+    enforces_win_condition: bool = True
     #: AddCard lines we could not resolve. Never silently dropped: an
     #: unresolvable name means a card missing from our picture of the field
     #: while the engine places it regardless, which reads as the agent
@@ -160,6 +162,7 @@ class Puzzle:
 
         lp = {int(p): int(v) for p, v, _s, _d in _PLAYER_INFO.findall(code)}
 
+        enforced = "BeginPuzzle" in code
         cards, unparsed = [], []
         for raw in _ADD_CARD.findall(code):
             parts = [_resolve(a) for a in raw.split(",")]
@@ -173,6 +176,7 @@ class Puzzle:
             objective=obj.group(1).strip() if obj else "",
             flags=flags, flag_names=flag_names, unknown_flags=unknown,
             rule=rule, lp=lp, cards=tuple(cards),
+            enforces_win_condition=enforced,
             unparsed_cards=tuple(unparsed),
         )
 
@@ -185,6 +189,19 @@ class Puzzle:
     @property
     def is_speed(self) -> bool:
         return bool(self.flags & DUEL_MODE_SPEED == DUEL_MODE_SPEED)
+
+    @property
+    def is_marathon(self) -> bool:
+        """No aux.BeginPuzzle(), so nothing ends the duel at turn end.
+
+        Seven playable puzzles comment the call out. Without it the engine
+        never zeroes the solver's life points, so these are ordinary duels
+        that happen to start from a fixed field - one of them puts the
+        opponent on 9,999,999 LP and asks you to win outright. They run fine;
+        they just cannot be judged by the one-turn rule, and a policy that
+        does not win them exhausts the step cap rather than losing.
+        """
+        return not self.enforces_win_condition
 
     @property
     def is_tutorial(self) -> bool:

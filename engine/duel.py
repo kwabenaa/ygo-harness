@@ -374,6 +374,22 @@ class Duel:
             if winner is not None or status == api.DuelStatus.END:
                 break
             if status == api.DuelStatus.AWAITING:
+                # The engine is blocked on an answer. If this batch said
+                # something but none of it was a decision we recognise, the
+                # question is one we cannot see - and `pending` still holds
+                # the *previous* question, so answering now replies to
+                # something the engine already moved past. That presents as an
+                # endless MSG_RETRY loop attributed to the wrong message,
+                # which is how four missing decision types stayed hidden.
+                if msgs and new_decision is None and not saw_retry:
+                    ids = ", ".join(
+                        f"{MSG_NAMES.get(m.id, m.id)}({m.id})" for m in msgs
+                    )
+                    raise RuntimeError(
+                        f"engine is awaiting a response but this batch held no "
+                        f"decision we know: [{ids}]. Add it to "
+                        f"DECISION_MESSAGES and give it a decoder."
+                    )
                 who = pending.player if pending is not None else None
                 active = policy1 if (policy1 is not None and who == 1) else policy
                 response = active(pending, self)

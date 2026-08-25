@@ -88,6 +88,9 @@ class _Reader:
     def u8(self) -> int:
         v = self.buf[self.off]; self.off += 1; return v
 
+    def u16(self) -> int:
+        (v,) = struct.unpack_from("<H", self.buf, self.off); self.off += 2; return v
+
     def u32(self) -> int:
         (v,) = struct.unpack_from("<I", self.buf, self.off); self.off += 4; return v
 
@@ -366,3 +369,291 @@ def parse_select_battlecmd(payload: bytes) -> BattleCmd:
         ref.client_mode = direct          # reuse the field for "can attack directly"
         attackable.append(ref)
     return BattleCmd(player, activatable, attackable, bool(r.u8()), bool(r.u8()))
+
+
+# ---------------------------------------------------------------------------
+# Decision points reached by the wider card pool.
+#
+# Everything below is asked by playerop.cpp and blocks until answered. They
+# were absent from DECISION_MESSAGES until the puzzle runner reached them, and
+# the resulting failures did not look like "unhandled message" - `pending` went
+# stale, the policy answered the previous question forever, and the error named
+# the wrong message. tests/test_constants.py now derives the required set from
+# playerop.cpp so that cannot recur silently.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SelectOption:
+    """A "pick one of these effect modes" decision. Response is the index."""
+    player: int
+    options: list[int]
+
+    @staticmethod
+    def encode(index: int) -> bytes:
+        return struct.pack("<i", index)
+
+
+def parse_select_option(payload: bytes) -> SelectOption:
+    r = _Reader(payload)
+    player, count = r.u8(), r.u8()          # count is uint8, not uint32
+    return SelectOption(player, [r.u64() for _ in range(count)])
+
+
+@dataclass
+class SortCard:
+    """A "put these in an order" decision (MSG_SORT_CARD / MSG_SORT_CHAIN)."""
+    player: int
+    cards: list[CardRef]
+
+    @staticmethod
+    def encode(order: list[int]) -> bytes:
+        """One int8 per card, forming a permutation of 0..n-1.
+
+        Not an index like most decisions. The validator walks every position
+        and rejects a repeat, so answering with a plain `0` - which is what
+        the placeholder did - fails the moment there is more than one card.
+        """
+        return b"".join(struct.pack("<b", i) for i in order)
+
+    @staticmethod
+    def decline() -> bytes:
+        """-1 leaves the order alone. Always legal."""
+        return struct.pack("<b", -1)
+
+
+def parse_sort_card(payload: bytes) -> SortCard:
+    r = _Reader(payload)
+    player = r.u8()
+    cards = []
+    for _ in range(r.u32()):
+        code, con = r.u32(), r.u8()
+        loc, seq = r.u32(), r.u32()         # both uint32 here, unlike loc_info
+        cards.append(CardRef(code, con, loc, seq, 0, 0))
+    return SortCard(player, cards)
+
+
+@dataclass
+class SelectCounter:
+    """A "remove N counters from these cards" decision."""
+    player: int
+    counter_type: int
+    count: int
+    cards: list[tuple[int, int]]            # (code, counters on it)
+
+    @staticmethod
+    def encode(taken: list[int]) -> bytes:
+        """One uint16 per offered card, summing to `count`."""
+        return b"".join(struct.pack("<H", n) for n in taken)
+
+    def spread(self) -> list[int]:
+        """Take counters greedily from the front until `count` is met."""
+        left, out = self.count, []
+        for _code, have in self.cards:
+            take = min(left, have)
+            out.append(take)
+            left -= take
+        return out
+
+
+def parse_select_counter(payload: bytes) -> SelectCounter:
+    r = _Reader(payload)
+    player = r.u8()
+    ctype, count = r.u16(), r.u16()
+    cards = []
+    for _ in range(r.u32()):
+        code = r.u32()
+        r.u8(), r.u8(), r.u8()              # controller, location, sequence
+        cards.append((code, r.u16()))
+    return SelectCounter(player, ctype, count, cards)
+
+
+@dataclass
+class SelectSum:
+    """Material selection constrained by a sum - Synchro, Ritual, Xyz tribute.
+
+    `exact` mirrors the core's two modes. When the core wrote mode 0 the
+    chosen cards' parameters must total `acc` exactly; when it wrote 1 they
+    must merely reach it, without any single card being removable.
+
+    Each card carries `sum_param`, packed as two uint16s: the low half is its
+    normal contribution and the high half an alternative (a monster with two
+    usable levels). Either may be used, which is why this is a search and not
+    a filter.
+    """
+    player: int
+    exact: bool
+    acc: int
+    min: int
+    max: int
+    must: list[tuple[int, int]]             # (code, sum_param)
+    selectable: list[tuple[int, int]]
+
+    @staticmethod
+    def _params(param: int) -> tuple[int, ...]:
+        lo, hi = param & 0xFFFF, param >> 16
+        return (lo, hi) if hi else (lo,)
+
+    def _exact_ok(self, opts: list[tuple[int, ...]]) -> bool:
+        """select_sum_check1: every chosen card is consumed, totalling `acc`.
+
+        Not a subset sum with slack - the core walks the whole list and must
+        land on zero at the last card, so an unused card makes the selection
+        illegal.
+        """
+        def reaches(rest: list[tuple[int, ...]], target: int) -> bool:
+            if not rest:
+                return target == 0
+            return any(
+                reaches(rest[1:], target - v)
+                for v in rest[0] if target - v >= 0
+            )
+        return bool(opts) and reaches(opts, self.acc)
+
+    def _atleast_ok(self, opts: list[tuple[int, ...]]) -> bool:
+        """The max==0 branch: reach `acc`, with no card removable.
+
+        Each card contributes its smaller parameter to `sum` and its larger to
+        `mx`. The selection must be able to reach `acc` (`mx >= acc`) while
+        being minimal - dropping the smallest contributor has to fall short.
+        """
+        if not opts:
+            return False
+        total = mx = 0
+        smallest = None
+        for choices in opts:
+            lo_v = min(choices)
+            total += lo_v
+            mx += max(choices)
+            smallest = lo_v if smallest is None else min(smallest, lo_v)
+        return mx >= self.acc and (total - smallest) < self.acc
+
+    def solve(self) -> list[int] | None:
+        """Indices into `selectable` the core will accept, or None.
+
+        Searches by increasing selection size, so the answer is the smallest
+        legal one - which is also the sane play, since these are materials
+        being spent. The lists are one summon's worth of cards, so a plain
+        depth-first search over subsets is the right tool.
+        """
+        must_opts = [self._params(p) for _c, p in self.must]
+        ok = self._exact_ok if self.exact else self._atleast_ok
+
+        lo = max(self.min, 0)
+        hi = min(self.max or len(self.selectable), len(self.selectable))
+
+        def search(start: int, chosen: list[int]):
+            if lo <= len(chosen) <= hi:
+                opts = must_opts + [
+                    self._params(self.selectable[i][1]) for i in chosen
+                ]
+                if ok(opts):
+                    return list(chosen)
+            if len(chosen) >= hi:
+                return None
+            for i in range(start, len(self.selectable)):
+                chosen.append(i)
+                found = search(i + 1, chosen)
+                chosen.pop()
+                if found is not None:
+                    return found
+            return None
+
+        return search(0, [])
+
+
+def parse_select_sum(payload: bytes) -> SelectSum:
+    r = _Reader(payload)
+    player = r.u8()
+    # The core writes 0 when a maximum was given and 1 when it was not, so
+    # this byte reads backwards from its name: 0 means the exact-sum mode.
+    exact = r.u8() == 0
+    acc, mn, mx = r.u32(), r.u32(), r.u32()
+
+    def group() -> list[tuple[int, int]]:
+        out = []
+        for _ in range(r.u32()):
+            code = r.u32()
+            r.u8(), r.u8(), r.u32(), r.u32()   # loc_info
+            out.append((code, r.u32()))        # sum_param
+        return out
+
+    must = group()
+    return SelectSum(player, exact, acc, mn, mx, must, group())
+
+
+@dataclass
+class AnnounceBits:
+    """MSG_ANNOUNCE_RACE / MSG_ANNOUNCE_ATTRIB: name `count` of a bit set.
+
+    The response is a bitmask, not an index, and the core checks both that
+    every bit is inside `available` and that exactly `count` bits are set.
+    """
+    player: int
+    count: int
+    available: int
+    width: int                              # 8 for race, 4 for attribute
+
+    def pick(self) -> int:
+        out, taken, bit = 0, 0, 0
+        while taken < self.count and bit < self.width * 8:
+            if self.available & (1 << bit):
+                out |= 1 << bit
+                taken += 1
+            bit += 1
+        return out
+
+    def encode(self, mask: int) -> bytes:
+        return struct.pack("<Q" if self.width == 8 else "<I", mask)
+
+
+def parse_announce_race(payload: bytes) -> AnnounceBits:
+    r = _Reader(payload)
+    player, count = r.u8(), r.u8()
+    return AnnounceBits(player, count, r.u64(), 8)
+
+
+def parse_announce_attrib(payload: bytes) -> AnnounceBits:
+    r = _Reader(payload)
+    player, count = r.u8(), r.u8()
+    return AnnounceBits(player, count, r.u32(), 4)
+
+
+@dataclass
+class AnnounceNumber:
+    """Pick one of a list of numbers. Response is the index, not the value."""
+    player: int
+    options: list[int]
+
+    @staticmethod
+    def encode(index: int) -> bytes:
+        return struct.pack("<i", index)
+
+
+def parse_announce_number(payload: bytes) -> AnnounceNumber:
+    r = _Reader(payload)
+    player, count = r.u8(), r.u8()
+    return AnnounceNumber(player, [r.u64() for _ in range(count)])
+
+
+@dataclass
+class AnnounceCard:
+    """Declare a card name - Crush Card Virus, Deck Devastation Virus, etc.
+
+    The payload is not a menu. It is a filter, in the little RPN language
+    is_declarable() evaluates in playerop.cpp, and any card in the pool that
+    satisfies it is a legal answer. So answering means running that filter,
+    which `engine.declare` does.
+    """
+    player: int
+    opcodes: list[int]
+
+    @staticmethod
+    def encode(code: int) -> bytes:
+        return struct.pack("<i", code)
+
+
+def parse_announce_card(payload: bytes) -> AnnounceCard:
+    r = _Reader(payload)
+    player, count = r.u8(), r.u8()
+    return AnnounceCard(player, [r.u64() for _ in range(count)])

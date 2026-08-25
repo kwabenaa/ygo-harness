@@ -105,6 +105,44 @@ def test_no_invented_constants():
     assert not unknown, f"not present in header: {unknown}"
 
 
+PLAYEROP = Path(__file__).parent.parent / "vendor" / "ygopro-core" / "playerop.cpp"
+
+#: Messages playerop.cpp emits that are NOT questions, each for a stated
+#: reason. Everything else it emits blocks until the host answers.
+NOT_QUESTIONS = {
+    "MSG_HINT",      # advisory text alongside a question
+    "MSG_RETRY",     # tells us the previous answer was rejected
+    "MSG_HAND_RES",  # broadcasts the rock-paper-scissors result
+}
+
+
+@pytest.mark.skipif(not PLAYEROP.exists(), reason="core not vendored")
+def test_decision_messages_cover_everything_playerop_asks():
+    """Every message the core can block on must be a known decision.
+
+    This is not a style check. A blocking message missing from
+    DECISION_MESSAGES does not surface as "unhandled message" - the run loop
+    never updates `pending`, so the policy keeps answering the *previous*
+    question, the engine keeps replying MSG_RETRY without restating anything
+    (trap 3), and the eventual error names the stale message rather than the
+    real one. Four messages were missing this way, and the failures they
+    caused were reported as bad SELECT_CARD/CHAIN/PLACE/YESNO formats.
+
+    Derived from the core's source rather than from our own list, so adding a
+    constant is not enough to make it pass.
+    """
+    asked = set(re.findall(r"new_message\((MSG_[A-Z_]+)\)", PLAYEROP.read_text()))
+    assert asked, "found no new_message calls - did playerop.cpp move?"
+    questions = asked - NOT_QUESTIONS
+    missing = [
+        name for name in sorted(questions)
+        if getattr(K, name, None) not in K.DECISION_MESSAGES
+    ]
+    assert not missing, (
+        f"playerop.cpp blocks on these but DECISION_MESSAGES omits them: {missing}"
+    )
+
+
 def test_decision_messages_are_known():
     for mid in K.DECISION_MESSAGES:
         assert mid in K.MSG_NAMES, f"decision message {mid} has no name"

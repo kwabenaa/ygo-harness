@@ -52,6 +52,7 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
         "steps": 0,
         "unhandled": {},
         "missing_scripts": [],
+        "marathon": puzzle.is_marathon,
     }
 
     reason = puzzle.skip_reason()
@@ -68,7 +69,16 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
         # The solver is always player 0. No winner means the loop ran out of
         # steps rather than the duel ending, which is a stall, not a loss.
         if out["winner"] is None:
-            result.update(outcome=STALLED, detail=f"no winner in {max_steps} steps")
+            # A puzzle with no aux.BeginPuzzle() has no engine-enforced end,
+            # so running out of steps means the policy did not win a full
+            # duel - a loss, not a harness failure. Only the enforced ones
+            # can genuinely stall, because PuzzleOp ends them at turn end.
+            if puzzle.is_marathon:
+                result.update(outcome=UNSOLVED,
+                              detail="no win condition enforced (full duel)")
+            else:
+                result.update(outcome=STALLED,
+                              detail=f"no winner in {max_steps} steps")
         else:
             result["outcome"] = SOLVED if out["winner"] == 0 else UNSOLVED
         result["steps"] = out["steps"]
@@ -136,6 +146,10 @@ def main() -> int:
           f'{"" if not ran else f"    {(ran - faults) / ran:.1%}"}   <- the harness number')
     print(f'  harness fault {faults}    ({tally[ERROR]} error, {tally[STALLED]} stalled)')
     print(f'  solved        {tally[SOLVED]}    <- the agent number, not a harness result')
+    marathons = sum(1 for r in results if r.get("marathon"))
+    if marathons:
+        print(f'  of which {marathons} have no engine-enforced win condition '
+              f'(no aux.BeginPuzzle)')
 
     if unhandled_total:
         print("\n  unhandled decision messages (each one is a missing decoder):")

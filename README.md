@@ -105,9 +105,19 @@ value function, no search referee and no authored solution to diff against.
 
 ```
 239 playable puzzles (219 of 458 are Rush Duel, a different ruleset)
-229 ran clean  ->  95.8%   the harness number
- 10 harness faults          9 response-format errors, 1 stall
+239 ran clean  ->  100%    the harness number
+  0 harness faults, 0 messages answered generically
 ```
+
+Getting there took four missing decision types and two wrong response formats.
+The instructive part is how they presented: a message the loop does not
+recognise never becomes the pending decision, so the policy keeps answering the
+*previous* question and the engine keeps replying `MSG_RETRY` without restating
+anything. Nine failures were therefore reported as format bugs in
+`MSG_SELECT_CARD`, `MSG_SELECT_CHAIN`, `MSG_SELECT_PLACE` and
+`MSG_SELECT_YESNO` — none of which was actually at fault. The set of blocking
+messages is now derived from `playerop.cpp` in a test, and the loop raises
+rather than answering into the void.
 
 `python scripts/run_puzzles.py` plays them with the random-legal policy, so
 this costs nothing. The number that matters is how many the harness could

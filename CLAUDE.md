@@ -156,7 +156,39 @@ error.
     therefore *expected* to differ on a handful of puzzles; 231 of 237 match
     exactly and the six that do not are the engine being right.
 
-16. **Most "missing" card scripts are vanilla monsters.** A Normal monster
+16. **A blocking message missing from `DECISION_MESSAGES` does not look like
+    an unhandled message.** It looks like a *response format bug in a
+    different message*. The run loop only updates `pending` when it sees a
+    message it recognises, so an unrecognised question leaves the previous
+    one pending, the policy answers that, and `MSG_RETRY` comes back without
+    restating anything (trap 3). Four were missing this way —
+    `MSG_ANNOUNCE_RACE`, `MSG_ANNOUNCE_ATTRIB`, `MSG_ANNOUNCE_CARD`,
+    `MSG_SELECT_SUM` — and produced nine failures reported against
+    `SELECT_CARD`/`CHAIN`/`PLACE`/`YESNO`. `test_decision_messages_cover_
+    everything_playerop_asks` now derives the required set from
+    `playerop.cpp`, and `Duel.run` raises when the engine blocks on a batch
+    holding no decision it knows.
+
+17. **Two response formats that are not indices.** `MSG_SORT_CARD` wants a
+    *permutation*, one `int8` per card, and rejects a repeat — answering `0`
+    works only for a single card. `MSG_ANNOUNCE_CARD` wants a *card code*
+    satisfying an RPN filter carried in the payload, not a menu choice; the
+    filter is evaluated in `engine/declare.py`, a port of `is_declarable`.
+
+18. **`MSG_SELECT_SUM` has two modes and the mode byte reads backwards.** The
+    core writes 0 when a maximum was given and 1 when it was not, so 0 means
+    the *exact* sum mode. In that mode every chosen card must be consumed —
+    it is an exact cover, not a subset sum with slack. The other mode only
+    requires reaching the total with no card removable. Each card carries two
+    possible parameters packed into one uint32, so both modes need a search.
+
+19. **Seven playable puzzles comment out `aux.BeginPuzzle()`.** Without it
+    nothing zeroes the solver's life points at turn end, so they are ordinary
+    duels from a fixed field — one puts the opponent on 9,999,999 LP. They run
+    fine, but a policy that does not win them exhausts the step cap, which
+    reads as a stall rather than a loss. `Puzzle.is_marathon` separates them.
+
+20. **Most "missing" card scripts are vanilla monsters.** A Normal monster
     has no script in CardScripts at all, so the core asks, gets nothing, and
     is correct. Reporting those buries the one case that matters — an effect
     card left with no effects, which is trap 1. `Duel._script_absence_is_notable`

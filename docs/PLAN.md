@@ -522,13 +522,23 @@ and card pool — leaving **239 playable**, spanning Master Rules 2 through 5
 and 15 Speed Duel puzzles. The wide card pool is the point: it reaches
 `MSG_*` paths Sky Striker never touches.
 
-**First measurement** (`scripts/run_puzzles.py`, random-legal policy, no
-tokens): **229 of 239 ran clean — 95.8%.** Ten harness faults: nine response
-formats the policy could not satisfy, spread across `MSG_SELECT_CARD`,
-`MSG_SELECT_CHAIN`, `MSG_SELECT_PLACE`, `MSG_SELECT_YESNO` and
-`MSG_SORT_CARD`, plus one stall. `MSG_SELECT_OPTION` and `MSG_SORT_CARD` still
-have no real decoder — they answer 0 and are counted as unhandled, a gap M1
-recorded and never closed.
+**Measured** (`scripts/run_puzzles.py`, random-legal policy, no tokens):
+first pass **229 of 239 — 95.8%**, now **239 of 239 — 100%**, with no message
+answered generically.
+
+The ten faults were six real defects. Four were blocking messages absent from
+`DECISION_MESSAGES` — `MSG_ANNOUNCE_RACE`, `MSG_ANNOUNCE_ATTRIB`,
+`MSG_ANNOUNCE_CARD`, `MSG_SELECT_SUM` — and they did not present as unhandled
+messages. An unrecognised question never becomes `pending`, so the policy kept
+answering the previous one, and the failures were attributed to whatever
+happened to be pending instead. Two were genuine format bugs: `MSG_SORT_CARD`
+takes a permutation rather than an index, and `MSG_SELECT_SUM` has a second
+"at least" mode. The last was not a bug at all — seven puzzles comment out
+`aux.BeginPuzzle()` and so are full duels, where exhausting the step cap is a
+loss rather than a stall.
+
+`MSG_SELECT_OPTION` and `MSG_SORT_CARD` now have real decoders, closing a gap
+M1 recorded and never acted on.
 
 Read the *ran clean* number, not the solved count. A puzzle the agent loses is
 a puzzle the agent lost; a puzzle that raises or stalls is a bug in `engine/`.

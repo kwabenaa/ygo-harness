@@ -47,6 +47,24 @@ class CardDB:
                 return r
         return None
 
+    def all_rows(self):
+        """Every card row across every attached database, deduplicated by id.
+
+        Used to answer MSG_ANNOUNCE_CARD, which asks for *a card satisfying a
+        filter* rather than a choice from a menu, so the pool has to be
+        searched. Streams rather than materialising - the databases together
+        hold well over ten thousand cards.
+        """
+        seen = set()
+        for conn in self.conns:
+            for r in conn.execute(
+                "select id, ot, alias, setcode, type, atk, def, level, race, "
+                "attribute from datas"
+            ):
+                if r[0] not in seen:
+                    seen.add(r[0])
+                    yield r
+
     @lru_cache(maxsize=None)
     def name(self, code: int) -> str:
         for conn in self.conns:

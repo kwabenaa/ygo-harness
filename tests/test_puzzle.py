@@ -139,3 +139,42 @@ def test_rush_puzzles_are_excluded():
     assert rush, "no Rush puzzles found - did the collection change?"
     assert all(p.skip_reason() == "rush" for p in rush)
     assert all(not p.is_rush for p in pool if p.skip_reason() is None)
+
+
+#: The puzzles that exposed the stale-pending bug, by name. Each one blocked
+#: on a message missing from DECISION_MESSAGES - MSG_ANNOUNCE_RACE,
+#: MSG_ANNOUNCE_ATTRIB, MSG_ANNOUNCE_CARD or MSG_SELECT_SUM - and the failure
+#: was reported against whatever question happened to be pending instead.
+#: Plus the two genuine format bugs: SORT_CARD wanted a permutation, and
+#: SELECT_SUM has a second "at least" mode.
+REGRESSION_PUZZLES = [
+    "AlphaKretin_07_Xyz_Change.lua",          # MSG_ANNOUNCE_RACE
+    "RashFaustinho_01_Obliterate.lua",        # MSG_ANNOUNCE_ATTRIB
+    "AlphaKretin_05_Lullaby.lua",             # MSG_ANNOUNCE_CARD
+    "Gideons_Unbreakable_Board.lua",          # MSG_ANNOUNCE_CARD
+    "Tutorial_Ritual_Advanced.lua",           # MSG_SELECT_SUM, exact mode
+    "[WCS2006]33_Match Point.lua",            # MSG_SELECT_SUM, at-least mode
+    "Puzzle_06_Tool_and_Offerings.lua",       # MSG_SORT_CARD permutation
+]
+
+
+@pytest.mark.parametrize("filename", REGRESSION_PUZZLES)
+def test_previously_broken_puzzles_run_clean(filename):
+    """Runs to a verdict without raising or stalling.
+
+    Asserts a *winner exists*, not that the puzzle was solved - random play
+    losing is the expected outcome and says nothing about the harness. What
+    must not happen is an exception or an unanswered question.
+    """
+    from scripts.run_puzzles import run_one, HARNESS_FAULTS
+    from agents.random_legal import RandomLegal
+
+    puzzle = next((p for p in iter_puzzles() if p.path.name == filename), None)
+    if puzzle is None:
+        pytest.skip(f"{filename} not in the pinned collection")
+
+    result = run_one(puzzle, lambda player: RandomLegal(seed=player * 1000))
+    assert result["outcome"] not in HARNESS_FAULTS, result["detail"]
+    assert not result["unhandled"], (
+        f"answered {result['unhandled']} generically - that is a missing decoder"
+    )
