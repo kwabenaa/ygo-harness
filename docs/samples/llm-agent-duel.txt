@@ -1,0 +1,406 @@
+    llm (P0) draws 5: Sky Striker Ace - Raye, Ash Blossom & Joyous Spring, Triple Tactics Talent, Sky Striker Mobilize - Engage!, Sky Striker Mobilize - Engage!
+    random (P1) draws 5: Sky Striker Mobilize - Linkage!, Sky Striker Ace - Raye, Gameciel, the Sea Turtle Kaiju, Sky Striker Mecha - Widow Anchor, Pot of Desires
+
+=== Turn 1 - llm (P0) ===
+  -- Main 1 --
+    llm (P0) activates Sky Striker Mobilize - Engage!
+    llm (P0) activates Ash Blossom & Joyous Spring  (chain link 2)
+      chain link 2 resolves
+      chain link 1 resolves
+    llm (P0) Normal Summons Sky Striker Ace - Raye
+    llm (P0) activates Sky Striker Ace - Raye
+    llm (P0) Special Summons Sky Striker Ace = Zero
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Ace = Zero
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Mobilize - Engage!
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Mobilize - Linkage!
+    llm (P0) Special Summons Sky Striker Ace - Kagari
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Ace - Kagari
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Mobilize - Linkage!
+    llm (P0) Special Summons Prototype Sky Striker Ace - Amatsu
+      chain link 1 resolves
+    llm (P0) Special Summons Sky Striker Ace - Shizuku
+    llm (P0) Special Summons Sky Striker Ace - Hayate
+    llm (P0) activates Sky Striker Mobilize - Engage!
+    llm (P0) draws 1: Sky Striker Special Maneuver - Lemnisgate!
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Special Maneuver - Lemnisgate!
+      chain link 1 resolves
+    llm (P0) sets a card
+  -- End --
+
+=== Turn 2 - random (P1) ===
+    random (P1) draws 1: Forbidden Crown
+  -- Main 1 --
+    random (P1) sets a card
+    random (P1) activates Sky Striker Mobilize - Linkage!
+    random (P1) Special Summons Sky Striker Ace = Zero
+      chain link 1 resolves
+    random (P1) sets a card
+  -- End --
+
+=== Turn 3 - llm (P0) ===
+    llm (P0) draws 1: Mystical Space Typhoon
+    llm (P0) activates Mystical Space Typhoon
+    random (P1) activates Sky Striker Ace = Zero  (chain link 2)
+    random (P1) Special Summons Sky Striker Ace - Roze
+    random (P1) Special Summons Sky Striker Ace - Raye
+      chain link 2 resolves
+      chain link 1 resolves
+  -- Main 1 --
+    llm (P0) Normal Summons Sky Striker Ace - Raye
+    llm (P0) activates Sky Striker Ace - Raye
+    random (P1) activates Sky Striker Ace - Raye  (chain link 2)
+    random (P1) Special Summons Sky Striker Ace - Kagari
+      chain link 2 resolves
+    llm (P0) Special Summons Sky Striker Ace = Zero
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Ace = Zero
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Mobilize - Linkage!
+    llm (P0) Special Summons Sky Striker Ace - Shizuku
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Special Maneuver - Lemnisgate!
+      chain link 1 resolves
+    llm (P0) Special Summons Sky Striker Ace - Hayate
+    llm (P0) activates Triple Tactics Talent
+    llm (P0) draws 2: Reinforcement of the Army, Forbidden Droplet
+      chain link 1 resolves
+    llm (P0) activates Forbidden Droplet
+      chain link 1 resolves
+    llm (P0) activates Reinforcement of the Army
+      chain link 1 resolves
+  -- End --
+
+=== Turn 4 - random (P1) ===
+    random (P1) draws 1: Sky Striker Special Maneuver - Lemnisgate!
+    random (P1) activates Sky Striker Special Maneuver - Lemnisgate!
+    random (P1) activates Forbidden Crown  (chain link 2)
+      chain link 2 resolves
+      chain link 1 resolves
+  -- Main 1 --
+    random (P1) Normal Summons Sky Striker Ace - Raye
+    random (P1) attacks directly
+      llm (P0) takes 1500 damage
+    random (P1) attacks directly
+      llm (P0) takes 1800 damage
+  -- Main 2 --
+  -- End --
+
+=== Turn 5 - llm (P0) ===
+    llm (P0) draws 1: Sky Striker Special Maneuver - Lemnisgate!
+    llm (P0) activates Sky Striker Special Maneuver - Lemnisgate!
+      chain link 1 resolves
+  -- Main 1 --
+    llm (P0) Normal Summons Sky Striker Ace - Raye
+    llm (P0) activates Sky Striker Ace - Raye
+    llm (P0) Special Summons Sky Striker Ace = Zero
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Ace = Zero
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Maneuver - Afterburners!
+      chain link 1 resolves
+  -- End --
+
+=== Turn 6 - random (P1) ===
+    random (P1) draws 1: Sky Striker Mecha - Shark Cannon
+  -- Main 1 --
+    random (P1) Special Summons Sky Striker Ace - Zeke
+    random (P1) activates Sky Striker Ace - Zeke
+      chain link 1 resolves
+    random (P1) Special Summons Sky Striker Ace - Shizuku
+    random (P1) activates Sky Striker Special Maneuver - Lemnisgate!
+    random (P1) activates Sky Striker Mecha - Shark Cannon  (chain link 2)
+      chain link 2 resolves
+      chain link 1 resolves
+    random (P1) Special Summons Prototype Sky Striker Ace - Amatsu
+    random (P1) Special Summons Sky Striker Ace - Hayate
+    random (P1) attacks directly
+      llm (P0) takes 1500 damage
+    random (P1) activates Sky Striker Ace - Hayate
+      chain link 1 resolves
+  -- Main 2 --
+  -- End --
+
+=== Turn 7 - llm (P0) ===
+    llm (P0) draws 1: Sky Striker Mobilize - Linkage!
+  -- Main 1 --
+    llm (P0) sets a card
+  -- Main 2 --
+  -- End --
+
+=== Turn 8 - random (P1) ===
+    random (P1) draws 1: Sky Striker Mecha - Widow Anchor
+  -- Main 1 --
+    random (P1) activates Sky Striker Ace - Zeke
+      chain link 1 resolves
+    random (P1) Special Summons Sky Striker Ace - Kagari
+    random (P1) activates Sky Striker Ace - Kagari
+      chain link 1 resolves
+    random (P1) sets a card
+    random (P1) attacks directly
+      llm (P0) takes 1800 damage
+  -- Main 2 --
+  -- End --
+
+=== Turn 9 - llm (P0) ===
+    llm (P0) draws 1: Sky Striker Mobilize - Engage!
+    random (P1) activates Sky Striker Mecha - Widow Anchor
+      chain link 1 resolves
+  -- Main 1 --
+    llm (P0) activates Sky Striker Mobilize - Engage!
+    llm (P0) activates Sky Striker Mobilize - Linkage!  (chain link 2)
+    llm (P0) Special Summons Sky Striker Ace - Kagari
+      chain link 2 resolves
+    llm (P0) draws 1: The Fallen & The Virtuous
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Ace - Kagari
+    llm (P0) activates Sky Striker Special Maneuver - Lemnisgate!  (chain link 2)
+    llm (P0) activates The Fallen & The Virtuous  (chain link 3)
+    llm (P0) activates Sky Striker Mecha - Widow Anchor  (chain link 4)
+      chain link 4 resolves
+      chain link 3 resolves
+      chain link 2 resolves
+      chain link 1 resolves
+  -- Main 2 --
+  -- End --
+
+=== Turn 10 - random (P1) ===
+    random (P1) draws 1: Forbidden Droplet
+  -- Main 1 --
+  -- End --
+
+=== Turn 11 - llm (P0) ===
+    llm (P0) draws 1: Sky Striker Mobilize - Engage!
+  -- Main 1 --
+    llm (P0) activates Sky Striker Mobilize - Engage!
+    llm (P0) draws 1: The Fallen & The Virtuous
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Mecha - Shark Cannon
+    llm (P0) activates The Fallen & The Virtuous  (chain link 2)
+      chain link 2 resolves
+    llm (P0) Special Summons Sky Striker Ace - Shizuku
+      chain link 1 resolves
+    random (P1) activates Sky Striker Ace - Raye
+    random (P1) Special Summons Sky Striker Ace - Raye
+      chain link 1 resolves
+    random (P1) activates Sky Striker Ace - Raye
+    random (P1) Special Summons Sky Striker Ace = Zero
+      chain link 1 resolves
+    random (P1) activates Sky Striker Ace = Zero
+    random (P1) Special Summons Sky Striker Ace - Roze
+    random (P1) Special Summons Sky Striker Ace - Raye
+      chain link 1 resolves
+  -- Main 2 --
+    llm (P0) Special Summons Sky Striker Ace - Kagari
+    llm (P0) activates Sky Striker Ace - Kagari
+      chain link 1 resolves
+    llm (P0) Special Summons Sky Striker Ace - Hayate
+    llm (P0) activates Sky Striker Mecha - Shark Cannon
+    llm (P0) Special Summons Prototype Sky Striker Ace - Amatsu
+      chain link 1 resolves
+    llm (P0) Special Summons Sky Striker Ace - Zeke
+    llm (P0) activates Sky Striker Ace - Zeke
+      chain link 1 resolves
+  -- End --
+    llm (P0) activates Albion the Branded Dragon
+      chain link 1 resolves
+
+=== Turn 12 - random (P1) ===
+    random (P1) draws 1: Radiant Typhoon Vision
+    random (P1) activates Sky Striker Mecha - Shark Cannon
+    random (P1) Special Summons Sky Striker Ace - Raye
+      chain link 1 resolves
+  -- Main 1 --
+    random (P1) sets a card
+    random (P1) activates Sky Striker Ace - Raye
+    random (P1) Special Summons Sky Striker Ace - Kagari
+      chain link 1 resolves
+    random (P1) activates Sky Striker Ace - Kagari
+      chain link 1 resolves
+    random (P1) sets a card
+    random (P1) activates Sky Striker Mecha - Widow Anchor
+      chain link 1 resolves
+    random (P1) Special Summons Super Starslayer TY-PHON - Sky Crisis
+    random (P1) sets a card
+  -- End --
+
+=== Turn 13 - llm (P0) ===
+    llm (P0) draws 1: Forbidden Droplet
+    llm (P0) activates Forbidden Droplet
+      chain link 1 resolves
+    random (P1) activates Radiant Typhoon Vision
+    random (P1) draws 2: Sky Striker Mecha - Widow Anchor, Sky Striker Maneuver - Afterburners!
+      chain link 1 resolves
+    random (P1) activates Sky Striker Ace - Raye
+      chain link 1 resolves
+  -- Main 1 --
+  -- End --
+
+=== Turn 14 - random (P1) ===
+    random (P1) draws 1: The Fallen & The Virtuous
+  -- Main 1 --
+    random (P1) Flip Summons Gameciel, the Sea Turtle Kaiju
+    random (P1) activates The Fallen & The Virtuous
+      chain link 1 resolves
+    random (P1) sets a card
+  -- End --
+
+=== Turn 15 - llm (P0) ===
+    llm (P0) draws 1: Forbidden Crown
+  -- Main 1 --
+    llm (P0) sets a card
+    llm (P0) activates Ecclesia and the Dark Dragon
+      chain link 1 resolves
+  -- Main 2 --
+  -- End --
+
+=== Turn 16 - random (P1) ===
+    random (P1) draws 1: The Fallen & The Virtuous
+    random (P1) activates The Fallen & The Virtuous
+    random (P1) Special Summons Sky Striker Ace - Raye
+      chain link 1 resolves
+    llm (P0) activates Forbidden Crown
+      chain link 1 resolves
+  -- Main 1 --
+  -- End --
+
+=== Turn 17 - llm (P0) ===
+    llm (P0) draws 1: Ash Blossom & Joyous Spring
+    random (P1) activates Sky Striker Ace - Raye
+    random (P1) Special Summons Sky Striker Ace = Zero
+      chain link 1 resolves
+    random (P1) activates Sky Striker Ace = Zero
+    random (P1) Special Summons Sky Striker Ace - Raye
+    random (P1) Special Summons Sky Striker Ace - Roze
+      chain link 1 resolves
+    random (P1) activates Sky Striker Special Maneuver - Lemnisgate!
+      chain link 1 resolves
+    random (P1) Special Summons Sky Striker Ace - Azalea
+    random (P1) activates Sky Striker Ace - Azalea
+      chain link 1 resolves
+  -- Main 1 --
+    llm (P0) Normal Summons Ash Blossom & Joyous Spring
+  -- End --
+
+=== Turn 18 - random (P1) ===
+    random (P1) draws 1: The Fallen & The Virtuous
+  -- Main 1 --
+    random (P1) sets a card
+  -- End --
+
+=== Turn 19 - llm (P0) ===
+    llm (P0) draws 1: Pot of Desires
+    random (P1) activates The Fallen & The Virtuous
+      chain link 1 resolves
+  -- Main 1 --
+    llm (P0) activates Pot of Desires
+    llm (P0) draws 2: Called by the Grave, Sky Striker Mecha - Hornet Drones
+      chain link 1 resolves
+    llm (P0) activates Called by the Grave
+      chain link 1 resolves
+  -- End --
+
+=== Turn 20 - random (P1) ===
+    random (P1) draws 1: Triple Tactics Talent
+  -- Main 1 --
+    random (P1) activates Ecclesia and the Dark Dragon
+      chain link 1 resolves
+  -- End --
+
+=== Turn 21 - llm (P0) ===
+    llm (P0) draws 1: Radiant Typhoon Vision
+    llm (P0) activates Sky Striker Mecha - Hornet Drones
+    llm (P0) activates Radiant Typhoon Vision  (chain link 2)
+    llm (P0) draws 2: Sky Striker Ace - Roze, Sky Striker Ace - Roze
+      chain link 2 resolves
+    llm (P0) Special Summons Sky Striker Ace Token
+      chain link 1 resolves
+  -- Main 1 --
+    llm (P0) Special Summons Sky Striker Ace - Kagari
+    llm (P0) activates Sky Striker Ace - Kagari
+      chain link 1 resolves
+    llm (P0) activates Sky Striker Mecha - Hornet Drones
+    llm (P0) Special Summons Sky Striker Ace Token
+      chain link 1 resolves
+    llm (P0) attacks directly
+      random (P1) takes 3400 damage
+  -- Main 2 --
+    llm (P0) Special Summons Prototype Sky Striker Ace - Amatsu
+    llm (P0) Special Summons Sky Striker Ace - Azalea
+    llm (P0) activates Sky Striker Ace - Azalea
+      chain link 1 resolves
+  -- End --
+
+=== Turn 22 - random (P1) ===
+    random (P1) draws 1: Sky Striker Mobilize - Linkage!
+  -- Main 1 --
+  -- End --
+
+=== Turn 23 - llm (P0) ===
+    llm (P0) draws 1: Ash Blossom & Joyous Spring
+  -- Main 1 --
+  -- End --
+
+=== Turn 24 - random (P1) ===
+    random (P1) draws 1: Maxx "C"
+  -- Main 1 --
+    random (P1) sets a card
+  -- Main 2 --
+    random (P1) sets a card
+    random (P1) sets a card
+  -- End --
+
+=== Turn 25 - llm (P0) ===
+    llm (P0) draws 1: Sky Striker Mobilize - Linkage!
+  -- Main 1 --
+    llm (P0) sets a card
+  -- Main 2 --
+    llm (P0) Normal Summons Ash Blossom & Joyous Spring
+  -- End --
+
+=== Turn 26 - random (P1) ===
+    random (P1) draws 1: Ghost Belle & Haunted Mansion
+  -- Main 1 --
+    random (P1) sets a card
+  -- Main 2 --
+    random (P1) Flip Summons Maxx "C"
+  -- End --
+
+=== Turn 27 - llm (P0) ===
+    llm (P0) draws 1: Infinite Impermanence
+  -- Main 1 --
+    llm (P0) sets a card
+    llm (P0) attacks
+      llm (P0) takes 500 damage
+  -- Main 2 --
+  -- End --
+
+=== Turn 28 - random (P1) ===
+    random (P1) draws 1: Solemn Accusation
+    llm (P0) activates Infinite Impermanence
+      chain link 1 resolves
+  -- Main 1 --
+  -- Main 2 --
+  -- End --
+
+=== Turn 29 - llm (P0) ===
+
+*** random (P1) WINS - opponent decked out ***
+
+--- final boards ---
+  llm (P0): LP 900
+     M: empty
+     S: Sky Striker Mobilize - Linkage!
+  random (P1): LP 4600
+     M: Ghost Belle & Haunted Mansion, Maxx "C"
+     S: Triple Tactics Talent, Sky Striker Mobilize - Linkage!
+
+--- agent ---
+  planner:  57 calls, 249412 in (6528 cached), 14883 out
+  executor: 63 calls, 278422 in (190720 cached), 137 out
+  cost:     $0.0146   wall: 239s

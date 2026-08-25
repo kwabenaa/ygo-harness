@@ -30,3 +30,6 @@ engine/lib/LUA_COMMIT
 data/BabelCDB/
 data/CardScripts/
 data/DATA_COMMITS
+
+# duel transcripts
+runs/
