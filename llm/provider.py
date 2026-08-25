@@ -92,9 +92,20 @@ class Provider:
         key = self.api_key or (os.environ.get(env) if env else None) or "not-needed"
         self.client = OpenAI(base_url=base, api_key=key)
 
-    def complete(self, system: str, user: str) -> str:
+    def complete(self, system: str, user: str, *,
+                 reasoning: dict | None = None) -> str:
         """One completion. System prompt first so the stable prefix is
-        cache-eligible on backends that cache automatically."""
+        cache-eligible on backends that cache automatically.
+
+        `reasoning` overrides the configured budget for this call only. That
+        exists for one specific recovery: a reasoning model given no budget
+        can spend the entire `max_tokens` thinking and return empty content,
+        and the only fix that does not just move the threshold is to ask again
+        with a budget it must conclude within.
+        """
+        body = dict(self.extra_body or {})
+        if reasoning is not None:
+            body["reasoning"] = reasoning
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -103,9 +114,12 @@ class Provider:
             ],
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            extra_body=self.extra_body or None,
+            extra_body=body or None,
         )
         self.usage.add(resp)
+        #: "length" means the model was cut off mid-thought rather than
+        #: choosing to stop, which is what an empty reply usually means here.
+        self.last_finish_reason = getattr(resp.choices[0], "finish_reason", None)
         choice = resp.choices[0].message
         # OpenRouter returns a reasoning model's thinking alongside the
         # content. Keep the most recent one so a transcript can show *why*

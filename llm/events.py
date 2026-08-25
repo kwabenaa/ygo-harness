@@ -171,6 +171,52 @@ def describe(msg, db, viewer: int) -> str | None:
                 return None
             return f"revealed to {_who(player, viewer)}: {', '.join(names)}"
 
+        if mid == K.MSG_BECOME_TARGET:
+            n = r.u32()
+            who = [_who(r.loc()[0], viewer) for _ in range(n)]
+            if not who:
+                return None
+            return f"a card {who[0]} controls was targeted"
+
+        if mid in (K.MSG_CARD_TARGET, K.MSG_CANCEL_TARGET):
+            src, dst = r.loc(), r.loc()
+            verb = "now targets" if mid == K.MSG_CARD_TARGET else "stops targeting"
+            return (f"a card {_who(src[0], viewer)} controls {verb} "
+                    f"a card {_who(dst[0], viewer)} controls")
+
+        if mid == K.MSG_EQUIP:
+            src, dst = r.loc(), r.loc()
+            return (f"an Equip card {_who(src[0], viewer)} controls was "
+                    f"attached to a monster {_who(dst[0], viewer)} controls")
+
+        if mid == K.MSG_RANDOM_SELECTED:
+            player, n = r.u8(), r.u32()
+            return f"{n} card(s) chosen at random from {_who(player, viewer)}"
+
+        if mid == K.MSG_CONFIRM_DECKTOP:
+            player, n = r.u8(), r.u32()
+            names = []
+            for _ in range(n):
+                code = r.u32()
+                r.u8(), r.u8(), r.u32()
+                names.append(db.name(code))
+            if not names:
+                return None
+            return (f"top of {_who(player, viewer)} Deck revealed: "
+                    + ", ".join(names))
+
+        if mid == K.MSG_FIELD_DISABLED:
+            mask = r.u32()
+            return f"some zones are disabled (mask {mask:#x})" if mask else None
+
+        if mid == K.MSG_CARD_HINT:
+            con, _loc, _seq, _pos = r.loc()
+            kind, value = r.u8(), r.u64()
+            # Type 3 is the counter hint; the rest are mostly cosmetic.
+            if kind == 3:
+                return f"a card {_who(con, viewer)} controls shows {value} counters"
+            return None
+
         if mid in (K.MSG_ADD_COUNTER, K.MSG_REMOVE_COUNTER):
             _ctype = r.u16()
             con, _loc, _seq = r.u8(), r.u8(), r.u8()

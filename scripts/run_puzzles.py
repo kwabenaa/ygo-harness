@@ -165,6 +165,8 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["asked"] = stats.asked
             result["fallbacks"] = (stats.fallbacks + stats.unparseable
                                    + stats.out_of_range)
+            result["truncated"] = stats.truncated
+            result["forced_default"] = stats.forced_default
         result["_trace"] = getattr(p0, "trace", [])
         result["_system"] = getattr(p0, "system", "")
     except Exception as exc:                        # noqa: BLE001 - reported, not swallowed
@@ -198,6 +200,8 @@ def main() -> int:
     ap.add_argument("--transcript", default=None, metavar="DIR",
                     help="write one readable file per puzzle showing exactly "
                          "what the agent was shown and what it chose")
+    ap.add_argument("--no-plan", action="store_true",
+                    help="skip the per-turn planning call")
     ap.add_argument("--cheap", action="store_true",
                     help="use the normal duel routing instead of sending every "
                          "puzzle decision to the planner")
@@ -235,6 +239,12 @@ def main() -> int:
                 # recover in, so the turn-start edge would fire once and hand
                 # the whole solve to the cheap model.
                 split=Deliberation(always=not args.cheap),
+                # One long think about the whole line before the first
+                # action. A combo cannot be re-derived one decision at a
+                # time: step three looks pointless unless you already know
+                # steps four and five.
+                planning=not args.no_plan,
+                objective=puzzle.objective,
             )
         return build
 
@@ -283,6 +293,18 @@ def main() -> int:
     if marathons:
         print(f'  of which {marathons} have no engine-enforced win condition '
               f'(no aux.BeginPuzzle)')
+
+    forced = sum(r.get("forced_default", 0) for r in results)
+    asked = sum(r.get("asked", 0) for r in results)
+    truncated = sum(r.get("truncated", 0) for r in results)
+    if asked:
+        print(f"\n  model decisions {asked}")
+        print(f"  cut off mid-reasoning {truncated}  (retried with a budget)")
+        # This is the number that invalidates a run. Option 0 is arbitrary,
+        # so a run full of forced defaults measures the fallback, not the
+        # model - and it looks exactly like an agent playing badly.
+        print(f"  fell back to option 0 {forced}"
+              f"{'   <- these decisions were not the model' if forced else ''}")
 
     if unhandled_total:
         print("\n  unhandled decision messages (each one is a missing decoder):")

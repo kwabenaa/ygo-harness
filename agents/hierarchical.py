@@ -20,9 +20,11 @@ from .llm_agent import LLMAgent
 
 class HierarchicalAgent(LLMAgent):
     def __init__(self, planner, executor, db, deck_codes, *, viewer=0,
-                 verbose=False, system=None, split=None):
+                 verbose=False, system=None, split=None, planning=False,
+                 objective=""):
         super().__init__(executor, db, deck_codes, viewer=viewer,
-                         verbose=verbose, system=system)
+                         verbose=verbose, system=system, planning=planning,
+                         objective=objective)
         self.planner = planner
         self.executor = executor
         self.split = split or Deliberation()

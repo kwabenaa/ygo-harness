@@ -31,7 +31,7 @@ from engine.messages import (
 )
 from engine.render import render_actions, render_state, zone_label
 from llm.events import recent as recent_events
-from llm.prompt import decision_prompt, system_prompt
+from llm.prompt import decision_prompt, plan_prompt, system_prompt
 
 _NUM = re.compile(r"-?\d+")
 
@@ -94,6 +94,12 @@ class Stats:
     unparseable: int = 0
     out_of_range: int = 0
     fallbacks: int = 0
+    #: Replies cut off mid-reasoning, before any answer was produced.
+    truncated: int = 0
+    #: Retries that still failed, so the agent fell back to option 0. This is
+    #: the number that invalidates a run: option 0 is arbitrary, and a duel
+    #: full of them measures the fallback, not the model.
+    forced_default: int = 0
     choices: list[int] = field(default_factory=list)
 
 
@@ -101,7 +107,8 @@ class LLMAgent:
     """Policy callable compatible with Duel.run()."""
 
     def __init__(self, provider, db, deck_codes: list[int], *, viewer: int = 0,
-                 verbose: bool = False, system: str | None = None):
+                 verbose: bool = False, system: str | None = None,
+                 planning: bool = False, objective: str = ""):
         self.p = provider
         self.db = db
         #: Callers with a different framing - a puzzle rather than a duel -
@@ -116,10 +123,51 @@ class LLMAgent:
         # never asked about. Seeded, so a duel stays reproducible.
         from agents.random_legal import RandomLegal
         self.mechanical = RandomLegal(seed=viewer)
+        #: A line to lethal, written once per turn and carried into every
+        #: decision that turn.
+        self.plan = ""
+        self.planning = planning
+        self.objective = objective
+        self._plan_turn = -1
         #: Every decision, as the model saw it. This is the whole prompt body
         #: - board, hand, legal actions - plus the reply, so a transcript
         #: shows the harness's translation rather than a summary of it.
         self.trace: list[dict] = []
+
+    # ------------------------------------------------------------ planning
+
+    def _ensure_plan(self, duel, turn: int | None) -> None:
+        """Write a line to lethal once per turn, and keep it.
+
+        Rebuilt on a turn boundary rather than per decision: a plan is the
+        thing that survives across decisions, and re-deriving it every step is
+        exactly the shallow reasoning the split was meant to avoid. On a
+        puzzle the turn never changes, so this fires once.
+        """
+        if not self.planning:
+            return
+        if duel.turn_count == self._plan_turn:
+            return
+        self._plan_turn = duel.turn_count
+        provider = getattr(self, "planner", self.p)
+        try:
+            self.plan = provider.complete(
+                self.system,
+                plan_prompt(render_state(duel, self.db, self.viewer, turn=turn),
+                            self.objective),
+            ).strip()
+        except Exception as e:                      # a failed plan is not fatal
+            self.plan = ""
+            if self.verbose:
+                print(f"  [planning failed: {type(e).__name__}: {e}]")
+            return
+        self.trace.append({
+            "n": 0, "shown": "<planning request>", "reply": self.plan,
+            "chose": None, "model": getattr(provider, "model", "?"),
+            "reasoning": getattr(provider, "last_reasoning", "") or "",
+        })
+        if self.verbose and self.plan:
+            print(f"  [plan] {self.plan[:200]}")
 
     # ------------------------------------------------------------ helpers
 
@@ -131,11 +179,13 @@ class LLMAgent:
         # being revealed, or a coin landing tails all leave a board that looks
         # like any other board.
         events = self.history[-6:] + recent_events(duel, self.db, self.viewer)
+        self._ensure_plan(duel, turn)
         body = decision_prompt(
             render_state(duel, self.db, self.viewer, turn=turn)
             + "\nACTIONS\n" + render_actions(self.db, cmd, names=menu_names),
             history=events,
             n_options=n_options,
+            plan=self.plan,
         )
         self.stats.asked += 1
         step = {"n": self.stats.asked, "shown": body, "reply": "", "chose": None,
@@ -145,22 +195,39 @@ class LLMAgent:
             reply = self.p.complete(self.system, body)
         except Exception as e:                     # network/provider failure
             self.stats.fallbacks += 1
+            self.stats.forced_default += 1
             step["reply"] = f"<provider error: {type(e).__name__}: {e}>"
             if self.verbose:
                 print(f"  [provider error: {type(e).__name__}: {e}]")
             return 0
+        # A reasoning model with no budget can spend the whole max_tokens
+        # thinking and return nothing. Measured on one puzzle: 7 of 18 replies
+        # came back empty after ~7k tokens of reasoning, and each one silently
+        # became "take option 0" - which reads as the agent playing badly
+        # rather than as the agent never having answered.
+        if not reply and getattr(self.p, "last_finish_reason", None) == "length":
+            self.stats.truncated += 1
+            if self.verbose:
+                print("  [reasoning ran past max_tokens; asking again, capped]")
+            try:
+                reply = self.p.complete(self.system, body,
+                                        reasoning={"max_tokens": 512})
+            except Exception:
+                reply = ""
         step["reply"] = reply
         step["reasoning"] = getattr(self.p, "last_reasoning", "") or ''
 
         m = _NUM.search(reply)
         if not m:
             self.stats.unparseable += 1
+            self.stats.forced_default += 1
             if self.verbose:
                 print(f"  [unparseable reply: {reply[:80]!r}]")
             return 0
         idx = int(m.group())
         if not (0 <= idx < n_options):
             self.stats.out_of_range += 1
+            self.stats.forced_default += 1
             if self.verbose:
                 print(f"  [out of range: {idx} not in 0..{n_options-1}]")
             return 0

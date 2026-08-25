@@ -214,6 +214,24 @@ def parse_yrpx(data: bytes) -> dict:
     return out
 
 
+def _read_name(body: bytes, off: int) -> str:
+    """One 20-character UTF-16 name out of its fixed 40-byte slot.
+
+    The slot is a fixed-width buffer, and EDOPro does not clear the tail past
+    the terminator - a real `_LastReplay.yrp` had a lone UTF-16 surrogate
+    sitting after the name, which made a strict decode of all 40 bytes raise.
+    Cut at the first NUL *pair on an even offset* (a single zero byte is half
+    of an ordinary character), then decode what is left.
+    """
+    raw = body[off:off + 40]
+    end = len(raw)
+    for i in range(0, len(raw) - 1, 2):
+        if raw[i] == 0 and raw[i + 1] == 0:
+            end = i
+            break
+    return raw[:end].decode("utf-16-le", "replace").rstrip("\x00")
+
+
 def parse_yrp(data: bytes) -> dict:
     """Read back what build_yrp wrote, in the order EDOPro reads it.
 
@@ -236,7 +254,7 @@ def parse_yrp(data: bytes) -> dict:
             n = 2 if flag & REPLAY_TAG else 1
         out["player_counts"].append(n)
         for _ in range(n):
-            out["names"].append(body[o:o + 40].decode("utf-16-le").rstrip("\x00"))
+            out["names"].append(_read_name(body, o))
             o += 40
     out["start_lp"], out["start_hand"], out["draw_count"] = struct.unpack_from("<III", body, o)
     o += 12

@@ -169,10 +169,41 @@ def system_prompt(db, deck_codes: list[int]) -> str:
     )
 
 
+PLAN_REQUEST = """\
+Before choosing any action, work out the whole line.
+
+You are looking for a sequence that wins THIS TURN. Think about which cards
+combine, what each summon enables, and where the damage finally comes from.
+Count the damage: say how the opponent's life total reaches zero.
+
+Answer with a short numbered list of the steps you intend to take, then a
+final line beginning "DAMAGE:" showing the arithmetic. If you cannot find a
+winning line, say so and give the best attempt you can.
+
+Do not choose an action yet. This is the plan only."""
+
+
+def plan_prompt(state_text: str, objective: str = "") -> str:
+    """Ask for a full line to lethal, once, before the first action.
+
+    A policy asked only "which of these options" re-derives its intentions
+    from the board at every step, and a combo is precisely the thing that
+    cannot be re-derived one decision at a time - step three looks pointless
+    unless you already know steps four and five. This buys one long think and
+    then holds the result, rather than paying for shallow thinking repeatedly.
+    """
+    goal = f"\nObjective: {objective}\n" if objective else ""
+    return f"{state_text}\n{goal}\n{PLAN_REQUEST}"
+
+
 def decision_prompt(state_text: str, *, history: list[str] | None = None,
-                    n_options: int | None = None) -> str:
-    """The volatile half: what just happened, the board, and the options."""
+                    n_options: int | None = None, plan: str = "") -> str:
+    """The volatile half: the plan, what just happened, the board, options."""
     parts = []
+    if plan:
+        parts.append(
+            "YOUR PLAN FOR THIS TURN (you wrote this before acting; follow it "
+            "unless the board now makes a step impossible)\n" + plan)
     if history:
         parts.append("RECENT EVENTS\n" + "\n".join(f"  {h}" for h in history[-8:]))
     parts.append(state_text)
