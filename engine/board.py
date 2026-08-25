@@ -207,3 +207,33 @@ def query_field(duel) -> FieldInfo | None:
     if off + 4 <= len(raw):
         (chain,) = struct.unpack_from("<I", raw, off)
     return FieldInfo(duel_options, (lps[0], lps[1]), chain)
+
+
+def board_signature(duel, viewer: int) -> tuple:
+    """A cheap summary of everything a plan depends on.
+
+    Taken often enough that it has to stay cheap - once per chain resolution,
+    ~35 times a duel - so it is queries, not a full `read_board`.
+
+    Deliberately partial. Graveyard *contents* and the banished pile churn on
+    almost every resolution without changing the route to a target board, and
+    a signature that changes every time is worth exactly as much as no
+    signature at all. Graveyard *size* is kept because Sky Striker reads it.
+    Both players' zones are here: the opponent resolving something on their
+    own board changes our route just as much as it changes theirs.
+    """
+    def zones(cards):
+        return tuple((c.code, c.position) if c else None for c in cards)
+
+    fi = query_field(duel)
+    other = 1 - viewer
+    return (
+        zones(query_location(duel, viewer, LOCATION_MZONE)),
+        zones(query_location(duel, viewer, LOCATION_SZONE)),
+        zones(query_location(duel, other, LOCATION_MZONE)),
+        zones(query_location(duel, other, LOCATION_SZONE)),
+        tuple(sorted(c.code for c in
+                     query_location(duel, viewer, LOCATION_HAND, LIST_FLAGS) if c)),
+        count(duel, viewer, LOCATION_GRAVE),
+        fi.lp if fi else None,
+    )
