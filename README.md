@@ -171,6 +171,17 @@ all-planner routing have each been fixed, and **none of them moved the solve
 rate**. That is worth stating plainly: the remaining gap is not obviously an
 information gap.
 
+That held until the one decision that mattered was read closely, at which
+point it stopped holding - see `docs/PLAN.md`. The agent had never been told
+which phase of the turn it was in, planned an attack from Main Phase 2 (which
+is impossible), and declined a free direct attack to carry the plan out. With
+the phase shown and turn structure in the primer it attacks, and dealt this
+puzzle its first damage in any run.
+
+The scan below is kept because its method was sound and its conclusion was
+not: it sampled the model's mechanics claims, found them individually correct,
+and never checked turn structure.
+
 Scanning 368,000 characters of the agent's own reasoning supports that. Its
 statements about the rules are correct - it knows you cannot Normal Summon in
 Main Phase 2, it quotes card text accurately. What it doubts is our

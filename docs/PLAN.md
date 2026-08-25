@@ -592,11 +592,36 @@ The harness no longer chooses moves at all. Provider errors retry with
 backoff, an unusable reply gets one terse re-ask, and after that the duel is
 abandoned and reported `invalid` - a different fact from a loss.
 
-A scan of 368,000 characters of the agent's reasoning says the remaining gap
-is not rules knowledge: its mechanics claims are correct, and 49% of its
-self-corrections were about our presentation versus 20% about rules. So the
-next levers are a stronger planner, or search over candidate lines - not a
-rules primer.
+**That scan's conclusion was wrong, and worth recording as wrong.** It said the
+remaining gap was not rules knowledge, on the grounds that the model's
+mechanics claims were individually correct. It sampled claims and never
+checked *turn structure*, which is the class that broke.
+
+Reading the one decision that mattered settled it. On the 2/10 puzzle the
+agent declined a free direct attack against an empty field, to carry out this
+plan: "Main Phase 2 -> Summon Zanki -> Attack with both -> Win." You cannot
+attack from Main Phase 2. It had explicitly double-checked and concluded the
+line was legal.
+
+Underneath that was a harness gap, and the one you would least expect to
+survive this long: **the agent was never told which phase it was in.**
+`render_state` had always accepted a `phase` and the agent never passed one;
+`MSG_NEW_PHASE` was tracked nowhere. The board read "LP you 1000 / opp 2400"
+and nothing else, so the phase was inferred from the shape of the action menu.
+
+Fixed, plus turn structure in the primer. The effect on play was immediate:
+
+| | before | after |
+|---|---|---|
+| declined a free direct attack | yes | **no - attacked twice** |
+| damage dealt | 0 | **200** |
+| summoned before the Battle Phase | no | **yes** |
+
+Still unsolved - 200 of the 2400 needed - but the opponent's life total moved
+for the first time in any run of this puzzle, and the reasoning now says "I am
+currently in Battle Phase" rather than guessing. The lesson is the one this
+codebase keeps relearning: check what the agent was actually shown before
+concluding anything about how it thinks.
 
 **Working protocol.** A full Master Rule 5 run is ~30 minutes and several
 hundred calls, and answers a question one puzzle already answers. Iterate on
