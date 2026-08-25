@@ -25,13 +25,24 @@ executor:
   # measured: 0.8s, 2 output tokens
 
 planner:
-  # Turn start and after every opponent interruption.
+  # Turn start, after every opponent interruption, and - since the menu-shape
+  # triggers - any interrupt window, activation choice or wide menu. Puzzles
+  # route every decision here.
   model: qwen/qwen3.7-flash
+  # No `reasoning` block, so the model thinks for as long as it wants. The
+  # 256-token budget below was chosen when the planner fired a few times a
+  # turn and latency was the binding cost. It is not the binding cost on a
+  # puzzle: one short paragraph of thinking to find a multi-step OTK is the
+  # obvious thing to try removing, and five rounds of feeding the agent more
+  # information did not move the solve rate.
+  #   previously: reasoning: {max_tokens: 256}  -> 3.1s p50, 262 output tokens
+  #   default:                                  -> 12.8s p50, 1331 output tokens
   preset: openrouter
-  max_tokens: 2048
-  reasoning:
-    max_tokens: 256
-  # measured: 3.1s p50, 3.7s max, 262 output tokens
+  # Reasoning tokens count against max_tokens on OpenRouter, so this has to
+  # clear the thinking *and* the answer. At 2048 an unbounded reasoner spends
+  # the whole budget thinking and returns empty content, which the agent reads
+  # as an unparseable reply and silently falls back to option 0.
+  max_tokens: 8192
 
 smoke:
   # Free, for plumbing tests that should cost nothing.

@@ -88,7 +88,13 @@ def query_coverage() -> list[tuple[str, int, bool]]:
 
 
 def message_coverage() -> list[tuple[str, int, bool, bool, bool]]:
-    """Every MSG_* the core emits, and how far it gets through the harness."""
+    """Every MSG_* the core emits, and how far it gets through the harness.
+
+    "Shown" means narrated to the agent as an event. Decisions are excluded
+    from that count and reported separately: the policy *answers* those, which
+    is a stronger form of handling than describing them, and counting them as
+    unshown made the gap look a third larger than it was.
+    """
     emitted = set()
     for f in CORE.glob("*.cpp"):
         emitted |= set(re.findall(r"new_message\((MSG_[A-Z0-9_]+)\)", f.read_text()))
@@ -124,21 +130,35 @@ def main() -> int:
             continue
         print(f"  {name:22} {'yes' if ok else 'NO':>10}")
 
+    from engine.constants import DECISION_MESSAGES
+    import engine.constants as K
+
     m = message_coverage()
-    actionable = [r for r in m if r[0] not in NOT_AGENT_VISIBLE]
     named = sum(1 for r in m if r[2])
-    shown = sum(1 for r in actionable if r[4])
+
+    def kind(name: str) -> str:
+        if getattr(K, name, None) in DECISION_MESSAGES:
+            return "decision"
+        if name in NOT_AGENT_VISIBLE:
+            return "skip"
+        return "event"
+
+    events = [r for r in m if kind(r[0]) == "event"]
+    decisions = [r for r in m if kind(r[0]) == "decision"]
+    shown = sum(1 for r in events if r[4])
+
     print(f"\nMESSAGES the core emits: {len(m)}")
-    print(f"  named   : {named}/{len(m)}")
-    print(f"  reach the agent: {shown}/{len(actionable)} "
-          f"(excluding {len(m) - len(actionable)} with nothing to act on)\n")
-    print(f"  {'id':>4}  {'message':28} {'named':>6} {'decoded':>8} {'shown':>6}")
-    for name, mid, is_named, is_decoded, is_shown in m:
-        skip = NOT_AGENT_VISIBLE.get(name)
-        if args.missing_only and (is_shown or skip):
+    print(f"  named            : {named}/{len(m)}")
+    print(f"  decisions answered: {len(decisions)} (the policy replies to these)")
+    print(f"  events narrated   : {shown}/{len(events)}")
+    print(f"  nothing to act on : {len(m) - len(events) - len(decisions)}\n")
+    print(f"  {'id':>4}  {'message':28} {'kind':>9} {'decoded':>8} {'shown':>6}")
+    for name, mid, _is_named, is_decoded, is_shown in m:
+        k = kind(name)
+        if args.missing_only and (k != "event" or is_shown):
             continue
-        tag = f"  ({skip})" if skip else ""
-        print(f"  {mid:>4}  {name:28} {'y' if is_named else '-':>6} "
+        tag = f"  ({NOT_AGENT_VISIBLE[name]})" if k == "skip" else ""
+        print(f"  {mid:>4}  {name:28} {k:>9} "
               f"{'y' if is_decoded else '-':>8} {'y' if is_shown else '-':>6}{tag}")
     return 0
 
