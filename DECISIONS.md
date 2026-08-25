@@ -5,29 +5,75 @@ deliberately put off. Newest first.
 
 ---
 
-## Open: .yrp export is written but unverified against EDOPro
+## .yrp export works in EDOPro
 
-**Status:** implemented, not confirmed.
+**Status:** closed. Two format bugs found and fixed; confirmed in the client.
 
-`viz/replay.py` writes YRP1 replays with an ExtendedReplayHeader carrying the
-Xoshiro seed, and `scripts/play.py` emits one per duel. The bytes round-trip
-through our own parser: magic, seed, duel flags, both decks in dealt order,
-and every response.
+The previous entry said the bytes round-tripped through our own parser and
+that this proved self-consistency, not compatibility. That was right, and the
+gap was real: the file **did not open**. Two fields were missing, both of them
+required only because we set `REPLAY_NEWREPLAY`, and both silent:
 
-**That proves self-consistency, not compatibility.** Nobody has opened one of
-these in EDOPro. The plausible failure points, in order:
+- `Replay::ParseNames` reads a `uint32` player count per side *before* the
+  names. Without it the client read the first four bytes of `"Player 1"` as a
+  count of seven million players.
+- `Replay::ParseDecks` reads a `uint32` custom-rule-card count immediately
+  after the decks. Without it the client ate the first response byte as part
+  of that count.
 
-- `CLIENT_VERSION` (currently `0x1361`) may be rejected or may select a
-  different body layout.
-- `hash` is written as 0. Fine if unchecked for uncompressed bodies; fatal if
-  not.
-- The flag set (`EXTENDED_HEADER | NEWREPLAY | 64BIT_DUELFLAG | LUA64`) may
-  need to match what the client expects for a yrp1.
-- EDOPro's own core version must be compatible with the one we link.
+Neither could ever fail a round-trip test, because our reader agreed with our
+writer about omitting them. The guard that does catch them is
+`test_body_layout_matches_client_reading_order`, which pins byte offsets
+transcribed from the client rather than from us.
 
-To verify: install EDOPro, drop a `.yrp` into its `replay/` folder, and open
-it from the replay menu. If it fails, `ygopro-replay-inflate` is a second
-opinion on whether the file or the client is at fault.
+The other suspects listed in the old entry turned out to be fine, and EDOPro's
+own `replay/_LastReplay.yrp` settles them: it writes `hash` and `datasize` as
+0, so neither is checked; its `version` is `0x000b0029`, which is exactly the
+value we now compute (client 41.0, core 11.0); and its flag set is ours plus
+`REPLAY_SINGLE_MODE`. `ParseReplayHeader` checks only `header_version <= 1`.
+
+**How it is verified now.** `scripts/verify_yrp.py` replays a `.yrp` through
+the EDOPro install's *own* core, card databases and Lua scripts, following
+`ReplayMode::StartDuel`. This is not a stand-in for the client - it is the
+client's code path, minus rendering. A duel of 917 responses reproduces in
+2212 engine steps with the same winner, identical to our own engine.
+`tests/test_yrp_edopro.py` keeps it, skipping when EDOPro is not installed.
+
+Confirmed in the GUI on 2026-08-24: an exported duel opens from EDOPro's
+replay menu and plays back with card art and animation. Reviewing a duel the
+agent played is now a thing that happens by watching it, which was the whole
+argument for doing M1.5 before anything prettier.
+
+---
+
+## A replay is only as portable as the card scripts it was played with
+
+**Status:** empirical, found while verifying the export.
+
+EDOPro does not store a picture of a duel. It re-creates one from the seed and
+feeds the responses back into its own core, so a response is only legal if the
+client's engine offers the same menu ours did. Card scripts move, and when they
+move the menu changes.
+
+Measured, not theorised: against EDOPro 41.0.2 as shipped, our replay desynced
+at response 18 of 917 - `MSG_SELECT_IDLECMD`, turn 2. The installer's April
+2025 script snapshot was **missing eight of the deck's cards outright** and
+differed on six more. EDOPro clones `ProjectIgnis/DeltaBagooska` over that
+snapshot on first launch; against the updated scripts the same file replays
+clean. So the failure was never in the file.
+
+**Consequences:**
+
+- A `.yrp` we publish is only replayable by a client whose scripts cover the
+  cards played. "It desynced" is not evidence the export is broken - check the
+  data versions first, which is what `--engine ours` exists for.
+- Read EDOPro's data the way EDOPro does: prefer
+  `repositories/delta-bagooska/{script,bin,*.delta.cdb}` over the bundled
+  `script/`, `libocgcore.dylib` and `expansions/`. The bundled copies are the
+  installer's snapshot and are stale the moment the client first runs.
+- `data/DATA_COMMITS` pins babelcdb at `d1cf9e0a`, which is what
+  `repositories/delta-bagooska/VERSION` reports today. That agreement is
+  luck, not machinery. Nothing enforces it.
 
 ---
 
@@ -38,6 +84,10 @@ opinion on whether the file or the client is at fault.
 [WindBot](https://github.com/IceYGO/windbot) is the community's rule-based bot:
 C#, per-deck `Executor` classes, speaks the YGOPro network protocol over TCP.
 It never links the core.
+
+Worth knowing when this comes back: installing EDOPro drops a WindBot build at
+`~/Applications/ProjectIgnis/WindBot`, so the "real WindBot over a local
+server" option no longer starts with a C# build.
 
 It was going to be the fixed-skill baseline. Dropped for now because a baseline
 is only useful once there is an agent worth measuring, and the human-vs-agent

@@ -2,8 +2,10 @@
 
 An LLM agent and benchmark for Yu-Gi-Oh, built directly on the game's real rules engine.
 
-> **Status: M0 complete.** The engine builds on Apple Silicon, duels run end to
-> end, and determinism is proven. No agent yet.
+> **Status: M1 complete.** The engine builds on Apple Silicon, duels run end to
+> end, determinism is proven, and a two-model hierarchical agent plays full
+> duels for under a cent each. Exported `.yrp` replays open and play back in
+> EDOPro. No benchmark yet — `search/` and `bench/` are still empty.
 
 ```
 50 full duels in 0.39s  ->  7.9 ms/duel, 127 duels/sec
@@ -71,6 +73,27 @@ engine-backed search yields the best achievable value `V*`; the agent scores `V`
 - **The current card pool covers the target deck.** All 36 distinct cards in the
   Sky Striker list resolve in BabelCDB with Lua scripts present, including every
   card newer than the assistant's knowledge cutoff.
+
+## What M1 added
+
+- **A two-model agent** (`agents/hierarchical.py`): a planner that thinks, and
+  an executor that only picks an index. Board state via the engine's query
+  API, with hidden information masked once, in `render.py`.
+- **The cost model in the plan was wrong by ~10x, in our favour.** Board state
+  costs ~170 tokens per decision, not ~2,000; a duel costs **$0.004–0.013**,
+  not $0.25. Cost is dominated by the model's own reasoning output, so
+  reasoning length is the only dial that matters. Full duels are affordable.
+- **`.yrp` replay export**, verified. EDOPro does not store a picture of a
+  duel — it re-simulates one from the seed and feeds the recorded responses
+  back into its own core. So `scripts/verify_yrp.py` replays an exported file
+  through EDOPro's *own* core, card database and Lua scripts, which is the
+  client's code path minus rendering. Duels are watchable in the real client,
+  with card art, for no rendering work of ours.
+
+The corollary is worth stating: because the client re-simulates, **a replay is
+only as portable as the card scripts it was played with**. A client whose
+scripts differ from `data/DATA_COMMITS` can desync mid-duel — which is not a
+bug in the file. See `DECISIONS.md`.
 
 ## Layout
 

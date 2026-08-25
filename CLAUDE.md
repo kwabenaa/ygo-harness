@@ -32,6 +32,8 @@ never commit it.**
 | `llm/models.yaml` | model roles, with the measurements that chose them |
 | `agents/` | policies. Anything goes here |
 | `bench/` | **sealed** eval protocol. Do not tune against it |
+| `viz/replay.py` | `.yrp` export - see the two `REPLAY_NEWREPLAY` traps below |
+| `scripts/verify_yrp.py` | replays a `.yrp` through EDOPro's own core/cards/scripts |
 | `docs/PLAN.md`, `DECISIONS.md` | plan, and the record of decisions/deferrals |
 
 ## Traps
@@ -90,7 +92,21 @@ error.
 9. **ctypes callbacks must be kept alive** for the duel's lifetime, or the
    core calls into freed memory.
 
-10. **Lua is compiled as C++** (see `scripts/build_core.sh`). Not cosmetic:
+10. **`.yrp` fields that exist only under `REPLAY_NEWREPLAY`.** A per-side
+    `uint32` player count before the names, and a `uint32` custom-rule-card
+    count after the decks. Omit either and EDOPro reads name bytes as a
+    player count, or a response byte as a rule count - it does not reject the
+    file, it misparses it. A round-trip through our own parser cannot catch
+    this, so `tests/test_replay.py` pins byte offsets taken from
+    `Replay::ParseNames`/`ParseDecks` instead.
+
+11. **EDOPro's install directory is stale the moment it first runs.** The
+    real core, cards and scripts live in
+    `repositories/delta-bagooska/{bin,*.delta.cdb,script}`, cloned on first
+    launch over the installer's snapshot. Reading the bundled `script/` gave
+    a deck with eight cards missing and a replay that desynced at turn 2.
+
+12. **Lua is compiled as C++** (see `scripts/build_core.sh`). Not cosmetic:
     Lua's `longjmp` error handling would skip C++ destructors otherwise. This
     is why upstream `meson.build` cannot be used — it links a C-compiled
     system Lua.

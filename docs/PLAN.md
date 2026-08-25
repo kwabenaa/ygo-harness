@@ -487,5 +487,8 @@ and **ablate it** — report flat vs. hierarchical as a result, not a config.
   chain actually changed our board.
 - The agent still wins by deck-out rather than damage. It plays real lines
   but does not yet close games.
-- `.yrp` export (M1.5) not started — this is what makes duels watchable in
-  EDOPro, and its format compatibility is still unverified.
+- Replays are only as portable as the card scripts they were played with.
+  EDOPro re-simulates rather than replaying a recording, so a client whose
+  scripts differ from `data/DATA_COMMITS` can desync mid-duel. Nothing checks
+  that our pin and EDOPro's live data agree; `tests/test_yrp_edopro.py`
+  catches it after the fact, on the machine that has EDOPro installed.
