@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.hierarchical import HierarchicalAgent
 from agents.random_legal import RandomLegal
+from scripts.run_puzzles import write_conversation
 from engine.board import query_field, read_board
 from engine.carddb import CardDB, ScriptProvider
 from engine.deck import Deck
@@ -99,8 +100,31 @@ def main():
 
         path = outdir / f"duel-{seed}.txt"
         log.save(str(path))
+
+        # Three records of the same duel, because they answer different
+        # questions. The .yrp is what EDOPro replays; the turn-by-turn is what
+        # a human reads to see how the duel went; the conversation is the only
+        # one that shows what the agent was actually told, which is where
+        # rendering and prompting bugs are visible at all.
+        convo = None
+        trace = getattr(p0, "trace", None)
+        if trace:
+            convo = outdir / f"duel-{seed}.conversation.txt"
+            write_conversation(
+                convo,
+                title=f"duel {seed}: {args.agent} (P0) vs {args.opponent} (P1)",
+                header=[
+                    f"winner:    P{r['winner']}",
+                    f"turns:     {log.turn}",
+                    f"decisions: {getattr(p0, 'stats', None) and p0.stats.asked}",
+                ],
+                system=getattr(p0, "system", ""),
+                trace=trace,
+            )
+
         print(f"seed {seed}: winner P{r['winner']}  turns {log.turn}  "
-              f"{dt:.0f}s\n           transcript {path}\n           replay     {yrp}")
+              f"{dt:.0f}s\n           transcript   {path}\n           replay       {yrp}"
+              + (f"\n           conversation {convo}" if convo else ""))
 
 
 if __name__ == "__main__":

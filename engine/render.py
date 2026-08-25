@@ -15,7 +15,6 @@ left to the caller to remember.
 from __future__ import annotations
 
 from .board import Board, CardInfo, query_field, read_board
-from .constants import POS_FACEUP_DEFENSE
 
 HIDDEN = "?"
 
@@ -33,14 +32,31 @@ def card_label(db, c: CardInfo | None, *, reveal: bool) -> str:
 
 
 def monster_label(db, c: CardInfo | None, *, reveal: bool) -> str:
+    """One monster, with its battle position stated explicitly.
+
+    Position is not decoration in this game - a face-down monster cannot
+    attack and has not had its effects applied, flip effects fire on being
+    turned face-up, and plenty of card text keys off attack or defence
+    position. This previously tested POS_FACEUP_DEFENSE alone, so a monster
+    you had set face-down in defence was described to the agent as being in
+    attack position.
+
+    Both ATK and DEF are shown regardless of position, because effects that
+    change position make the other number immediately relevant.
+    """
     if c is None:
         return "-"
     if c.face_down and not reveal:
         return "[set]"
     name = db.name(c.code) if c.code else HIDDEN
-    pos = "DEF" if c.position & POS_FACEUP_DEFENSE else "ATK"
-    stat = f"{c.attack}" if pos == "ATK" else f"{c.defense}"
-    return f"{name} {stat} {pos}"
+    pos = "DEF" if c.defense_position else "ATK"
+    if c.face_down:
+        # Ours, so we may name it - but it is still face-down, which the
+        # agent has to know before trying to attack with it.
+        return f"[face-down {pos}: {name} {c.attack}/{c.defense}]"
+    if c.is_link:
+        return f"{name} {c.attack} ATK (Link)"
+    return f"{name} {c.attack}/{c.defense} {pos}"
 
 
 def _row(labels: list[str]) -> str:

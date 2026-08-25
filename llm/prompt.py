@@ -15,6 +15,8 @@ once per duel and never rebuilt.
 
 from __future__ import annotations
 
+from engine import constants as K
+
 RULES_PRIMER = """\
 You are playing Yu-Gi-Oh (Master Rule 5) through a rules engine.
 
@@ -32,13 +34,105 @@ What you cannot see:
 
 Notation:
 - M: monster zones, S: spell/trap zones.
-- "Roze 1500 ATK" means face-up in attack position with 1500 ATK.
-- "[set]" is a face-down card. "GY" is the graveyard.
+- "Roze 1500/1500 ATK" is face-up in ATTACK position, 1500 ATK / 1500 DEF.
+- "Roze 1500/1500 DEF" is the same card face-up in DEFENCE position.
+- "[face-down DEF: Roze 1500/1500]" is yours, set face-down in defence. A
+  face-down monster cannot attack and its effects are not applied until it
+  is turned face-up.
+- "[set]" is a face-down card of your opponent's - you cannot see what it is.
+- Battle position matters beyond combat: many effects can only be activated
+  by, or can only target, a monster in a particular position.
+- "GY" is the graveyard.
 """
 
 
+#: Type bits that name a card, in the order a real card prints them.
+_TYPE_LABELS = [
+    (K.TYPE_RITUAL, "Ritual"), (K.TYPE_FUSION, "Fusion"),
+    (K.TYPE_SYNCHRO, "Synchro"), (K.TYPE_XYZ, "Xyz"), (K.TYPE_LINK, "Link"),
+    (K.TYPE_PENDULUM, "Pendulum"), (K.TYPE_TUNER, "Tuner"),
+    (K.TYPE_SPIRIT, "Spirit"), (K.TYPE_UNION, "Union"), (K.TYPE_GEMINI, "Gemini"),
+    (K.TYPE_TOON, "Toon"), (K.TYPE_FLIP, "Flip"), (K.TYPE_TOKEN, "Token"),
+    (K.TYPE_NORMAL, "Normal"), (K.TYPE_EFFECT, "Effect"),
+    (K.TYPE_SPSUMMON, "Special Summon"),
+]
+_SPELL_TRAP_LABELS = [
+    (K.TYPE_QUICKPLAY, "Quick-Play"), (K.TYPE_CONTINUOUS, "Continuous"),
+    (K.TYPE_EQUIP, "Equip"), (K.TYPE_FIELD, "Field"),
+    (K.TYPE_COUNTER, "Counter"), (K.TYPE_RITUAL, "Ritual"),
+]
+_ATTRIBUTES = [
+    (K.ATTRIBUTE_EARTH, "EARTH"), (K.ATTRIBUTE_WATER, "WATER"),
+    (K.ATTRIBUTE_FIRE, "FIRE"), (K.ATTRIBUTE_WIND, "WIND"),
+    (K.ATTRIBUTE_LIGHT, "LIGHT"), (K.ATTRIBUTE_DARK, "DARK"),
+    (K.ATTRIBUTE_DIVINE, "DIVINE"),
+]
+#: Octal in the C header - 0010 is 8, not 10 (trap 7).
+_LINK_MARKERS = [
+    (K.LINK_MARKER_TOP_LEFT, "TL"), (K.LINK_MARKER_TOP, "T"),
+    (K.LINK_MARKER_TOP_RIGHT, "TR"), (K.LINK_MARKER_LEFT, "L"),
+    (K.LINK_MARKER_RIGHT, "R"), (K.LINK_MARKER_BOTTOM_LEFT, "BL"),
+    (K.LINK_MARKER_BOTTOM, "B"), (K.LINK_MARKER_BOTTOM_RIGHT, "BR"),
+]
+
+
+def _race_name(race: int) -> str:
+    for name, val in vars(K).items():
+        if name.startswith("RACE_") and isinstance(val, int) and val == race:
+            return name[5:].replace("_", "-").title()
+    return "?"
+
+
+def _stat_line(db, code: int) -> str:
+    """The printed face of a card: everything but the artwork.
+
+    Without this the model saw a name and a paragraph of effect text, and had
+    to infer levels, ranks, Link ratings, ATK and attributes from prose - or
+    from memory of a card it may never have seen. Material requirements are
+    arithmetic over exactly these numbers, so a puzzle that needs a Rank 4 or
+    a Link-3 was being guessed at.
+    """
+    row = db.row(code)
+    if row is None:
+        return ""
+    _id, _ot, _alias, _setcode, ctype, atk, def_, level, race, attribute = row
+    ctype, level = ctype or 0, level or 0
+
+    def value(v):
+        return "?" if v is not None and v < 0 else str(v or 0)
+
+    bits = []
+    if ctype & K.TYPE_MONSTER:
+        attr = next((n for b, n in _ATTRIBUTES if attribute and attribute & b), "?")
+        bits.append(attr)
+        bits.append(_race_name(race or 0))
+        if ctype & K.TYPE_LINK:
+            bits.append(f"Link-{level & 0xFF}")
+            bits.append(f"{value(atk)} ATK")
+            marks = [n for b, n in _LINK_MARKERS if (def_ or 0) & b]
+            if marks:
+                bits.append("markers " + "/".join(marks))
+        else:
+            rank = "Rank" if ctype & K.TYPE_XYZ else "Level"
+            bits.append(f"{rank} {level & 0xFF}")
+            bits.append(f"{value(atk)} ATK / {value(def_)} DEF")
+        if ctype & K.TYPE_PENDULUM:
+            bits.append(f"Pendulum Scale {(level >> 24) & 0xFF}")
+        kinds = [n for b, n in _TYPE_LABELS if ctype & b]
+        bits.append(" ".join(kinds + ["Monster"]))
+    else:
+        kind = "Spell" if ctype & K.TYPE_SPELL else "Trap"
+        sub = [n for b, n in _SPELL_TRAP_LABELS if ctype & b] or ["Normal"]
+        bits.append(f"{' '.join(sub)} {kind}")
+
+    sets = db.archetypes(code)
+    if sets:
+        bits.append("archetype: " + ", ".join(sets))
+    return " | ".join(b for b in bits if b)
+
+
 def card_corpus(db, codes: list[int]) -> str:
-    """Card text for every card in the deck, sorted for a stable prefix.
+    """Everything about every card in play except the artwork.
 
     Sorted by code, not by deck order: prompt caching is a prefix match, so
     any reordering between duels would silently destroy the cache hit.
@@ -47,7 +141,9 @@ def card_corpus(db, codes: list[int]) -> str:
     for code in sorted(set(codes)):
         name = db.name(code)
         text = db.text(code).replace("\r\n", "\n").strip()
-        parts.append(f"### {name}\n{text}")
+        stats = _stat_line(db, code)
+        head = f"### {name}\n{stats}" if stats else f"### {name}"
+        parts.append(f"{head}\n{text}")
     return "\n\n".join(parts)
 
 

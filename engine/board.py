@@ -19,7 +19,7 @@ from . import ocgapi as api
 from .constants import (
     LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND,
     LOCATION_MZONE, LOCATION_REMOVED, LOCATION_SZONE, POS_FACEDOWN,
-    POS_FACEUP_DEFENSE, TYPE_LINK,
+    POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, TYPE_LINK,
 )
 
 QUERY_CODE = 0x1
@@ -57,7 +57,7 @@ class CardInfo:
 
     @property
     def defense_position(self) -> bool:
-        return bool(self.position & (POS_FACEUP_DEFENSE | 0x8))
+        return bool(self.position & (POS_FACEUP_DEFENSE | POS_FACEDOWN_DEFENSE))
 
     @property
     def is_link(self) -> bool:

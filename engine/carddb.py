@@ -8,6 +8,7 @@ pin its card pool by commit hash.
 from __future__ import annotations
 
 import ctypes as C
+import re
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
@@ -46,6 +47,42 @@ class CardDB:
             if r:
                 return r
         return None
+
+    @lru_cache(maxsize=None)
+    def _archetype_names(self) -> dict[int, str]:
+        """setcode -> archetype name, from CardScripts' own constants file.
+
+        Read from pinned data rather than from EDOPro's strings.conf, which
+        the install rewrites on launch (trap 11). Archetype membership is not
+        cosmetic in this game - most card text refers to archetypes by name -
+        so a card description that omits it is missing the thing that makes
+        the card work with the rest of the field.
+        """
+        path = DATA / "CardScripts" / "archetype_setcode_constants.lua"
+        out: dict[int, str] = {}
+        if not path.exists():
+            return out
+        for m in re.finditer(r"^SET_([A-Z0-9_]+)\s*=\s*(0x[0-9a-fA-F]+)",
+                             path.read_text(), re.M):
+            name = m.group(1).replace("_", " ").title()
+            out.setdefault(int(m.group(2), 16), name)
+        return out
+
+    def archetypes(self, code: int) -> list[str]:
+        """Archetype names this card belongs to."""
+        row = self.row(code)
+        if row is None:
+            return []
+        names = self._archetype_names()
+        out = []
+        for i in range(4):
+            sc = ((row[3] or 0) >> (16 * i)) & 0xFFFF
+            if not sc:
+                continue
+            label = names.get(sc) or names.get(sc & 0xFFF)
+            if label and label not in out:
+                out.append(label)
+        return out
 
     def all_rows(self):
         """Every card row across every attached database, deduplicated by id.

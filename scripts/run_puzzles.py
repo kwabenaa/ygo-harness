@@ -42,25 +42,29 @@ SOLVED, UNSOLVED, STALLED, ERROR, SKIPPED = (
 HARNESS_FAULTS = (STALLED, ERROR)
 
 
-def write_transcript(path: Path, puzzle, result: dict, trace: list) -> None:
-    """A readable record of the harness's translation, decision by decision.
+def write_conversation(path: Path, *, title: str, header: list[str],
+                       system: str, trace: list) -> None:
+    """The full exchange with the model: system prompt, then every decision.
 
-    Deliberately dumps the prompt body verbatim rather than summarising it.
-    The point of reading one of these is to see what the model actually got -
-    a summary would hide exactly the rendering bugs worth finding.
+    Dumped verbatim rather than summarised. The point of reading one of these
+    is to see exactly what the agent was told - a summary would hide the
+    rendering bugs worth finding, which is how a face-down defence monster
+    was described as being in attack position for as long as it was.
+
+    The system prompt is printed once because it is *sent* once: it is the
+    cached prefix, built per duel and reused at every decision. It is also the
+    only place the card data appears, so a record without it reads as though
+    the agent had been shown nothing but card names.
     """
-    lines = [
-        f"# {puzzle.name}",
-        f"file:      {puzzle.path.name}",
-        f"objective: {puzzle.objective or '(none stated)'}",
-        f"ruleset:   Master Rule {puzzle.rule}",
-        f"life:      you {puzzle.lp.get(0, '?')}  /  opponent {puzzle.lp.get(1, '?')}",
-        f"outcome:   {result['outcome'].upper()}  ({result.get('detail') or 'played to a verdict'})",
-        f"decisions: {result.get('asked', 0)}",
-        "",
-    ]
-    if puzzle.message:
-        lines += ["## Puzzle text", "", puzzle.message, ""]
+    lines = [f"# {title}", ""] + header + [""]
+    if system:
+        lines += [
+            "=" * 72,
+            "SYSTEM PROMPT  (sent once, cached, reused for every decision)",
+            "=" * 72,
+            system,
+            "",
+        ]
     for step in trace:
         lines += [
             "=" * 72,
@@ -73,6 +77,25 @@ def write_transcript(path: Path, puzzle, result: dict, trace: list) -> None:
             "",
         ]
     path.write_text("\n".join(lines))
+
+
+def write_transcript(path: Path, puzzle, result: dict, trace: list,
+                     system: str = "") -> None:
+    """The conversation for one puzzle, prefixed with the puzzle's own text."""
+    header = [
+        f"file:      {puzzle.path.name}",
+        f"objective: {puzzle.objective or '(none stated)'}",
+        f"ruleset:   Master Rule {puzzle.rule}",
+        f"complexity: {puzzle.complexity or '?'}/10",
+        f"life:      you {puzzle.lp.get(0, '?')}  /  opponent {puzzle.lp.get(1, '?')}",
+        f"outcome:   {result['outcome'].upper()}"
+        f"  ({result.get('detail') or 'played to a verdict'})",
+        f"decisions: {result.get('asked', 0)}",
+    ]
+    if puzzle.message:
+        header += ["", "## Puzzle text", "", puzzle.message]
+    write_conversation(path, title=puzzle.name, header=header, system=system,
+                       trace=trace)
 
 
 def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
@@ -130,6 +153,7 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["fallbacks"] = (stats.fallbacks + stats.unparseable
                                    + stats.out_of_range)
         result["_trace"] = getattr(p0, "trace", [])
+        result["_system"] = getattr(p0, "system", "")
     except Exception as exc:                        # noqa: BLE001 - reported, not swallowed
         result.update(outcome=ERROR, detail=f"{type(exc).__name__}: {exc}"[:200])
     finally:
@@ -151,6 +175,10 @@ def main() -> int:
     ap.add_argument("--root", default=None, help="puzzle directory")
     ap.add_argument("--filter", default=None, help="substring match on filename")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--hardest", type=int, default=None, metavar="N",
+                    help="only the N hardest puzzles, by the author's declared "
+                         "complexity. Use --hardest 1 when debugging: a simple "
+                         "puzzle is three decisions and proves nothing")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-steps", type=int, default=MAX_STEPS)
     ap.add_argument("--json", default=None, help="write full results here")
@@ -191,6 +219,9 @@ def main() -> int:
     puzzles = [p for p in iter_puzzles(args.root)
                if (not args.filter or args.filter.lower() in p.path.name.lower())
                and (args.rule is None or p.rule == args.rule)]
+    if args.hardest:
+        puzzles = sorted(puzzles, key=lambda p: p.difficulty,
+                         reverse=True)[:args.hardest]
     if args.limit:
         puzzles = puzzles[:args.limit]
     if not puzzles:
@@ -204,10 +235,11 @@ def main() -> int:
     for i, puz in enumerate(puzzles, 1):
         r = run_one(puz, policy_factory(puz), args.max_steps)
         trace = r.pop("_trace", [])
+        system = r.pop("_system", "")
         if args.transcript and trace:
             tdir = Path(args.transcript)
             tdir.mkdir(parents=True, exist_ok=True)
-            write_transcript(tdir / f"{puz.path.stem}.txt", puz, r, trace)
+            write_transcript(tdir / f"{puz.path.stem}.txt", puz, r, trace, system)
         results.append(r)
         tally[r["outcome"]] += 1
         unhandled_total.update(r["unhandled"])

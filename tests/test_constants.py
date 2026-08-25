@@ -15,7 +15,8 @@ import engine.constants as K
 
 HEADER = Path(__file__).parent.parent / "vendor" / "ygopro-core" / "ocgapi_constants.h"
 
-PREFIXES = ("MSG_", "LOCATION_", "POS_", "TYPE_", "DUEL_")
+PREFIXES = ("MSG_", "LOCATION_", "POS_", "TYPE_", "DUEL_", "RACE_",
+            "ATTRIBUTE_", "OPCODE_", "LINK_MARKER_")
 
 
 def header_values() -> dict[str, int]:

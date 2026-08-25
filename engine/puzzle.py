@@ -50,6 +50,7 @@ _ADD_CARD = re.compile(r"Debug\.AddCard\(([^)]*)\)")
 _MESSAGE = re.compile(r"--\[\[message(.*?)\]\]", re.S)
 _ORIGINAL_NAME = re.compile(r"^--\s*Original Puzzle Name:\s*(.+)$", re.M)
 _OBJECTIVE = re.compile(r"^\s*(Objective:.*)$", re.M)
+_COMPLEXITY = re.compile(r"Complexity:\s*(\d+)\s*/\s*10", re.I)
 
 
 def _strip_comments(text: str) -> str:
@@ -124,6 +125,8 @@ class Puzzle:
     rule: int = DEFAULT_PUZZLE_RULE
     lp: dict[int, int] = field(default_factory=dict)
     cards: tuple[PuzzleCard, ...] = ()
+    #: Author-declared difficulty out of 10, when the puzzle text states one.
+    complexity: int | None = None
     #: Whether the script actually calls aux.BeginPuzzle().
     enforces_win_condition: bool = True
     #: AddCard lines we could not resolve. Never silently dropped: an
@@ -146,6 +149,7 @@ class Puzzle:
         msg = _MESSAGE.search(text)
         message = msg.group(1).strip() if msg else ""
         obj = _OBJECTIVE.search(message or text)
+        cx = _COMPLEXITY.search(message or text)
 
         code = _strip_comments(text)
 
@@ -176,6 +180,7 @@ class Puzzle:
             objective=obj.group(1).strip() if obj else "",
             flags=flags, flag_names=flag_names, unknown_flags=unknown,
             rule=rule, lp=lp, cards=tuple(cards),
+            complexity=int(cx.group(1)) if cx else None,
             enforces_win_condition=enforced,
             unparsed_cards=tuple(unparsed),
         )
@@ -257,6 +262,17 @@ class Puzzle:
         comparison of the field has to sit them out.
         """
         return not self.unparsed_cards
+
+    @property
+    def difficulty(self) -> tuple:
+        """Sort key, hardest first: declared complexity, then card count.
+
+        Debugging wants the hardest puzzle, not a random one - a simple puzzle
+        exercises three decisions and proves very little about the harness.
+        Complexity is the author's own rating where they gave one; card count
+        stands in where they did not.
+        """
+        return (self.complexity or 0, len(self.cards))
 
     def __repr__(self) -> str:
         return f"Puzzle({self.name!r}, MR{self.rule}, {len(self.cards)} cards)"

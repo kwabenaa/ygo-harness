@@ -178,3 +178,43 @@ def test_previously_broken_puzzles_run_clean(filename):
     assert not result["unhandled"], (
         f"answered {result['unhandled']} generically - that is a missing decoder"
     )
+
+
+def test_face_down_defence_is_not_reported_as_attack():
+    """Battle position must survive rendering, including face-down defence.
+
+    `monster_label` used to test POS_FACEUP_DEFENSE alone, so a monster set
+    face-down in defence - the normal way to set a monster - was described to
+    the agent as being in attack position, with its ATK where its DEF should
+    be. Nothing raised; the agent was simply told something false about the
+    board, which is the failure mode this codebase specialises in.
+    """
+    from engine.board import CardInfo
+    from engine.constants import (
+        POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE,
+    )
+    from engine.render import monster_label
+
+    class FakeDB:
+        def name(self, code):
+            return "Test Monster"
+
+    db = FakeDB()
+    card = CardInfo(code=1, position=POS_FACEDOWN_DEFENSE, attack=1000, defense=1500)
+
+    mine = monster_label(db, card, reveal=True)
+    assert "DEF" in mine and "ATK" not in mine, mine
+    assert "face-down" in mine, mine
+
+    # The opponent's face-down stays masked - position included.
+    assert monster_label(db, card, reveal=False) == "[set]"
+
+    up_def = CardInfo(code=1, position=POS_FACEUP_DEFENSE, attack=1000, defense=1500)
+    assert monster_label(db, up_def, reveal=True).endswith("DEF")
+
+    up_atk = CardInfo(code=1, position=POS_FACEUP_ATTACK, attack=1000, defense=1500)
+    up_atk_label = monster_label(db, up_atk, reveal=True)
+    assert up_atk_label.endswith("ATK")
+    # Both numbers are shown regardless of position: a position change makes
+    # the other one immediately relevant.
+    assert "1000/1500" in up_atk_label
