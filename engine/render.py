@@ -166,9 +166,13 @@ def render_state(duel, db, viewer: int, *, turn: int | None = None,
     """Full board from `viewer`'s perspective, with hidden info masked."""
     me = read_board(duel, viewer)
     opp = read_board(duel, 1 - viewer)
+    from .constants import PHASE_NAMES
+
     head = []
     if turn is not None:
         head.append(f"Turn {turn}")
+    if phase is None:
+        phase = PHASE_NAMES.get(getattr(duel, "phase", None) or 0)
     if phase:
         head.append(phase)
     if lp is None:

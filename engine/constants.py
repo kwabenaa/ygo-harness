@@ -338,6 +338,34 @@ OPCODE_GETTYPE = 0x4000010700000000
 OPCODE_GETRACE = 0x4000010800000000
 OPCODE_GETATTRIBUTE = 0x4000010900000000
 
+# Turn phases. The order is Draw, Standby, Main 1, Battle, Main 2, End - and
+# it is one-way: once Main Phase 2 begins the Battle Phase is over and no
+# attack can be declared. An agent that does not know which phase it is in
+# cannot know that, and will plan an attack it can never make.
+PHASE_DRAW = 0x01
+PHASE_STANDBY = 0x02
+PHASE_MAIN1 = 0x04
+PHASE_BATTLE_START = 0x08
+PHASE_BATTLE_STEP = 0x10
+PHASE_DAMAGE = 0x20
+PHASE_DAMAGE_CAL = 0x40
+PHASE_BATTLE = 0x80
+PHASE_MAIN2 = 0x100
+PHASE_END = 0x200
+
+PHASE_NAMES = {
+    PHASE_DRAW: "Draw Phase",
+    PHASE_STANDBY: "Standby Phase",
+    PHASE_MAIN1: "Main Phase 1",
+    PHASE_BATTLE_START: "Battle Phase (start)",
+    PHASE_BATTLE_STEP: "Battle Phase (battle step)",
+    PHASE_DAMAGE: "Battle Phase (damage step)",
+    PHASE_DAMAGE_CAL: "Battle Phase (damage calculation)",
+    PHASE_BATTLE: "Battle Phase",
+    PHASE_MAIN2: "Main Phase 2",
+    PHASE_END: "End Phase",
+}
+
 # MSG_WIN reasons (processor.cpp).
 WIN_REASON_LP = 1        # life points reached 0
 WIN_REASON_DECKOUT = 2   # `overdraw` - tried to draw from an empty deck

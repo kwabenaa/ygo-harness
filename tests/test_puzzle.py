@@ -350,3 +350,56 @@ def test_every_puzzle_card_is_known():
         f"{len(scriptless)} effect cards have no script - they will have no "
         f"abilities and nothing will say so: {sorted(scriptless)[:8]}"
     )
+
+
+def test_the_board_states_the_phase():
+    """The agent must be told which phase it is in.
+
+    `render_state` has always accepted a `phase`, and the agent never passed
+    one, so the board read `LP you 1000 / opp 2400` and nothing more. Nothing
+    else reports the phase either - the query API describes the field, not
+    where in the turn you are - so the agent inferred it from the shape of its
+    action menu.
+
+    It inferred wrong, and the cost was the whole turn: on the 2/10 puzzle it
+    planned "Main Phase 2, summon Zanki, attack with both", declined a free
+    direct attack to carry that out, and lost. You cannot attack from Main
+    Phase 2. This test pins the Battle Phase specifically, because that is the
+    decision where being wrong is unrecoverable.
+    """
+    from engine.constants import MSG_SELECT_BATTLECMD, MSG_SELECT_IDLECMD
+    from engine.carddb import CardDB
+    from engine.messages import (
+        BATTLE_TO_EP, BattleCmd, IDLE_TO_BP, IdleCmd, parse_idlecmd,
+    )
+    from engine.render import render_state
+    from agents.random_legal import RandomLegal
+
+    puzzle = next((p for p in iter_puzzles()
+                   if "Home_of_the_Fiends" in p.path.name), None)
+    if puzzle is None:
+        pytest.skip("pinned puzzle not present")
+
+    db = CardDB()
+    headers = []
+
+    class ToBattle:
+        def __init__(self):
+            self.inner = RandomLegal(seed=0)
+
+        def __call__(self, msg, duel):
+            if msg is not None and msg.id == MSG_SELECT_IDLECMD:
+                cmd = parse_idlecmd(msg.payload)
+                if cmd.to_bp:
+                    return IdleCmd.encode(IDLE_TO_BP)
+            if msg is not None and msg.id == MSG_SELECT_BATTLECMD:
+                headers.append(render_state(duel, db, 0).splitlines()[0])
+                return BattleCmd.encode(BATTLE_TO_EP)
+            return self.inner(msg, duel)
+
+    with Duel.from_puzzle(puzzle) as duel:
+        duel.start()
+        duel.run(ToBattle(), max_steps=30_000, policy1=RandomLegal(seed=1))
+
+    assert headers, "never reached a battle-phase decision - the test proves nothing"
+    assert all("Battle Phase" in h for h in headers), headers

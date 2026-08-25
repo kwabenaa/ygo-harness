@@ -32,6 +32,24 @@ What you cannot see:
 - Your opponent's hand (only its size) and the contents of their set cards.
 - Face-down cards shown as [set] are unknown to you. Yours are named.
 
+The structure of a turn, which is one-way:
+
+    Draw -> Standby -> MAIN PHASE 1 -> BATTLE PHASE -> MAIN PHASE 2 -> End
+
+- The board tells you which phase you are in. Read it before planning.
+- You may only declare attacks during the BATTLE PHASE. Once you leave it for
+  Main Phase 2 the Battle Phase is over for the turn and cannot be re-entered.
+  There is no second Battle Phase.
+- So anything you want to attack with must already be on the field when you
+  enter the Battle Phase. "Go to Main Phase 2, summon a monster, then attack
+  with it" is impossible - a mistake that costs the whole turn.
+- You may Normal Summon or Set at most once per turn, and only during a Main
+  Phase. Some cards forbid Normal Summoning for the rest of the turn as a cost
+  of their own effect; the action menu is the authority on what you may
+  actually still do.
+- Special Summons are separate from your one Normal Summon and are governed by
+  each card's own text.
+
 Notation:
 - M: monster zones, S: spell/trap zones.
 - "Roze 1500/1500 ATK" is face-up in ATTACK position, 1500 ATK / 1500 DEF.

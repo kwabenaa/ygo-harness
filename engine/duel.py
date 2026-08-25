@@ -18,7 +18,8 @@ from . import ocgapi as api
 from .carddb import CardDB, ScriptProvider
 from .constants import (
     DECISION_MESSAGES, LOCATION_DECK, LOCATION_EXTRA, MASTER_RULE_5,
-    MSG_CHAINING, MSG_CHAIN_END, MSG_NAMES, MSG_NEW_TURN, MSG_RETRY, MSG_WIN,
+    MSG_CHAINING, MSG_CHAIN_END, MSG_NAMES, MSG_NEW_PHASE, MSG_NEW_TURN,
+    MSG_RETRY, MSG_WIN,
     POS_FACEDOWN_DEFENSE, TYPE_NORMAL,
 )
 
@@ -94,6 +95,11 @@ class Duel:
         self.chain_end_count = 0
         #: Whose turn it currently is (MSG_NEW_TURN payload is the turn player).
         self.turn_player: int | None = None
+        #: Current phase, from MSG_NEW_PHASE. Tracked because nothing else
+        #: reports it: the query API describes the field, not where in the
+        #: turn we are, and an agent left to infer the phase from the shape of
+        #: its action menu will get it wrong.
+        self.phase: int | None = None
         #: Player who activated the most recent chain link.
         self.last_chain_player: int | None = None
         self.log: list[str] = []
@@ -339,6 +345,8 @@ class Duel:
                     self.turn_count += 1
                     if m.payload:
                         self.turn_player = m.payload[0]
+                elif m.id == MSG_NEW_PHASE and len(m.payload) >= 2:
+                    (self.phase,) = struct.unpack_from("<H", m.payload, 0)
                 elif m.id == MSG_CHAINING:
                     self.chain_count += 1
                     # code (4 bytes), then a loc_info whose first byte is the

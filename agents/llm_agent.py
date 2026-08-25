@@ -174,7 +174,8 @@ class LLMAgent:
         try:
             self.plan = provider.complete(
                 self.system,
-                plan_prompt(render_state(duel, self.db, self.viewer, turn=turn),
+                plan_prompt(render_state(duel, self.db, self.viewer, turn=turn,
+                             phase=None),
                             self.objective),
             ).strip()
         except Exception as e:                      # a failed plan is not fatal
@@ -202,7 +203,8 @@ class LLMAgent:
         events = self.history[-6:] + recent_events(duel, self.db, self.viewer)
         self._ensure_plan(duel, turn)
         body = decision_prompt(
-            render_state(duel, self.db, self.viewer, turn=turn)
+            render_state(duel, self.db, self.viewer, turn=turn,
+                             phase=None)
             + "\nACTIONS\n" + (f"({note})\n" if note else "")
             + render_actions(self.db, cmd, names=menu_names),
             history=events,
