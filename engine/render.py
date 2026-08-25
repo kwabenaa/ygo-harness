@@ -153,11 +153,31 @@ def render_side(db, b: Board, *, viewer: int, label: str) -> list[str]:
     else:
         # Count only - never the contents.
         lines.append(f"{pad}  Hand: {len(b.hand)} cards")
+    # Graveyards are public to both players, and the whole graveyard is - not
+    # the last six of it. Truncating it hid exactly the cards a revival effect
+    # exists to reach.
     gy = [c for c in b.grave if c]
     if gy:
         lines.append(f"{pad}  GY ({len(gy)}): "
-                     + "  ".join(db.name(c.code) for c in gy[-6:]))
-    lines.append(f"{pad}  Deck: {b.deck_count}  Extra: {b.extra_count}")
+                     + "  ".join(db.name(c.code) for c in gy))
+
+    # Banished cards were read from the engine and then dropped on the floor -
+    # never rendered at all. Face-up banished is public; face-down is not, so
+    # card_label masks it the same way it masks a set card.
+    banished = [c for c in b.banished if c]
+    if banished:
+        lines.append(f"{pad}  Banished ({len(banished)}): "
+                     + "  ".join(card_label(db, c, reveal=own) for c in banished))
+
+    if own:
+        # Your own Extra Deck is known to you and is usually the whole point
+        # of a line - you cannot plan a Fusion, Synchro, Xyz or Link summon
+        # against a number. Your opponent's is hidden, so they get the count.
+        extra = [c for c in b.extra if c]
+        lines.append(f"{pad}  Deck: {b.deck_count}  Extra ({len(extra)}): "
+                     + ("  ".join(db.name(c.code) for c in extra) or "empty"))
+    else:
+        lines.append(f"{pad}  Deck: {b.deck_count}  Extra: {b.extra_count}")
     return lines
 
 

@@ -195,8 +195,15 @@ combine, what each summon enables, and where the damage finally comes from.
 Count the damage: say how the opponent's life total reaches zero.
 
 Answer with a short numbered list of the steps you intend to take, then a
-final line beginning "DAMAGE:" showing the arithmetic. If you cannot find a
-winning line, say so and give the best attempt you can.
+final line in exactly this form:
+
+    DAMAGE: <sum of each hit> = <total>
+
+The total must reach the opponent's life points. Check that arithmetic before
+you answer - a line that leaves them on even 1 life point is a loss, and the
+commonest way to lose one of these is a plan that was never enough.
+
+If you cannot find a winning line, say so and give the best attempt you can.
 
 Do not choose an action yet. This is the plan only."""
 

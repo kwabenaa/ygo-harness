@@ -12,6 +12,7 @@ when the collection has not been fetched.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -403,3 +404,50 @@ def test_the_board_states_the_phase():
 
     assert headers, "never reached a battle-phase decision - the test proves nothing"
     assert all("Battle Phase" in h for h in headers), headers
+
+
+def test_board_shows_every_zone_the_agent_can_use():
+    """Graveyard in full, banished at all, and your own Extra Deck by name.
+
+    Three zones were being read from the engine and then discarded before the
+    agent saw them: the graveyard was truncated to its last six cards, the
+    banished pile was never rendered, and the Extra Deck was a count. A count
+    is useless - you cannot plan a Fusion, Synchro, Xyz or Link summon against
+    the number 3 - and on the Mathmech puzzle the whole solution lives in
+    those three cards.
+    """
+    from engine.carddb import CardDB
+    from engine.render import render_state
+
+    db = CardDB()
+    puzzle = next((p for p in iter_puzzles() if "MathMech" in p.path.name), None)
+    if puzzle is None:
+        pytest.skip("pinned puzzle not present")
+
+    with Duel.from_puzzle(puzzle) as duel:
+        duel.start()
+        state = render_state(duel, db, 0)
+
+    own = [l for l in state.splitlines() if "Extra (" in l]
+    assert own, f"own Extra Deck not listed by name:\n{state}"
+    assert "Geomathmech Final Sigma" in state, (
+        "Extra Deck contents missing - the agent cannot plan a summon it "
+        f"cannot see:\n{state}")
+    # The opponent's Extra Deck stays a count: it is not public information.
+    assert any(re.search(r"Extra: \d+$", l) for l in state.splitlines()), state
+
+
+def test_graveyard_is_not_truncated():
+    """A revival effect reaches the whole graveyard, so the agent must see it."""
+    from engine.board import Board, CardInfo
+    from engine.carddb import CardDB
+    from engine.render import render_side
+
+    db = CardDB()
+    # Ten distinct real cards in the graveyard; all ten must be named.
+    codes = [46986414, 89631139, 27288416, 21844576, 58932615,
+             28279543, 6368038, 4035199, 36211150, 32295838]
+    b = Board(player=0, grave=[CardInfo(code=c) for c in codes])
+    line = " ".join(render_side(db, b, viewer=0, label="YOU"))
+    missing = [db.name(c) for c in codes if db.name(c) not in line]
+    assert not missing, f"graveyard truncated, hiding: {missing}"

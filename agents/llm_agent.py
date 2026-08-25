@@ -183,6 +183,7 @@ class LLMAgent:
             if self.verbose:
                 print(f"  [planning failed: {type(e).__name__}: {e}]")
             return
+        self.plan = self._check_damage(duel, provider, turn)
         self.trace.append({
             "n": 0, "shown": "<planning request>", "reply": self.plan,
             "chose": None, "model": getattr(provider, "model", "?"),
@@ -190,6 +191,45 @@ class LLMAgent:
         })
         if self.verbose and self.plan:
             print(f"  [plan] {self.plan[:200]}")
+
+    def _check_damage(self, duel, provider, turn) -> str:
+        """Hold the plan against the opponent's actual life total.
+
+        The engine knows the number the plan has to reach, so a plan that does
+        not reach it can be rejected before a single action is committed. This
+        is the failure that survived the phase fix: the agent stopped planning
+        illegal lines and started planning legal ones that were never enough,
+        attacking for 200 into a 2400 life total.
+
+        One re-plan, then the best attempt stands - the point is to catch a
+        plan that was never going to win, not to loop until one appears.
+        """
+        from engine.board import query_field
+
+        m = re.search(r"DAMAGE:[^=\n]*=\s*([\d,]+)", self.plan or "")
+        info = query_field(duel)
+        if not m or info is None:
+            return self.plan
+        target = info.lp[1 - self.viewer]
+        stated = int(m.group(1).replace(",", ""))
+        if stated >= target:
+            return self.plan
+        if self.verbose:
+            print(f"  [plan deals {stated} vs {target} LP; re-planning]")
+        try:
+            return provider.complete(
+                self.system,
+                plan_prompt(render_state(duel, self.db, self.viewer, turn=turn),
+                            self.objective)
+                + f"\n\nYour previous plan was:\n{self.plan}\n\n"
+                  f"That deals {stated}. The opponent has {target} life points, "
+                  f"so it does not win. Find a line that reaches {target}. "
+                  f"Look again at every card - your hand, your graveyard, your "
+                  f"Extra Deck, and effects that change ATK or let a monster "
+                  f"attack more than once. If no such line exists, say so.",
+            ).strip() or self.plan
+        except Exception:
+            return self.plan
 
     # ------------------------------------------------------------ helpers
 
