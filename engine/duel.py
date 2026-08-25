@@ -70,6 +70,14 @@ class Duel:
         self.scripts = scripts or ScriptProvider()
         self.seed = seed
         self.responses: list[bytes] = []
+        #: Decks in *dealt* order, per player. The engine does not shuffle -
+        #: we do - so this, not the .ydk, is what reproduces the duel and what
+        #: a .yrp replay must record.
+        self.dealt: list[tuple[list[int], list[int]]] = []
+        self.flags = flags
+        self.starting_lp = starting_lp
+        self.starting_draw = starting_draw
+        self.draw_per_turn = draw_per_turn
         #: Messages emitted since the last OCG_DuelProcess.
         self.last_batch: list[Message] = []
         #: Messages since the last decision point.
@@ -194,6 +202,9 @@ class Duel:
             self.add_card(code, team, LOCATION_DECK)
         for code in extra:
             self.add_card(code, team, LOCATION_EXTRA)
+        while len(self.dealt) <= team:
+            self.dealt.append(([], []))
+        self.dealt[team] = (list(order), list(extra))
 
     def start(self) -> None:
         self.lib.OCG_StartDuel(self.handle)

@@ -5,6 +5,32 @@ deliberately put off. Newest first.
 
 ---
 
+## Open: .yrp export is written but unverified against EDOPro
+
+**Status:** implemented, not confirmed.
+
+`viz/replay.py` writes YRP1 replays with an ExtendedReplayHeader carrying the
+Xoshiro seed, and `scripts/play.py` emits one per duel. The bytes round-trip
+through our own parser: magic, seed, duel flags, both decks in dealt order,
+and every response.
+
+**That proves self-consistency, not compatibility.** Nobody has opened one of
+these in EDOPro. The plausible failure points, in order:
+
+- `CLIENT_VERSION` (currently `0x1361`) may be rejected or may select a
+  different body layout.
+- `hash` is written as 0. Fine if unchecked for uncompressed bodies; fatal if
+  not.
+- The flag set (`EXTENDED_HEADER | NEWREPLAY | 64BIT_DUELFLAG | LUA64`) may
+  need to match what the client expects for a yrp1.
+- EDOPro's own core version must be compatible with the one we link.
+
+To verify: install EDOPro, drop a `.yrp` into its `replay/` folder, and open
+it from the replay menu. If it fails, `ygopro-replay-inflate` is a second
+opinion on whether the file or the client is at fault.
+
+---
+
 ## Deferred: WindBot as an opponent
 
 **Status:** not in v1. Revisit after M2.
