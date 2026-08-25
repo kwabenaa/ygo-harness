@@ -24,13 +24,27 @@ from engine.constants import (
     MSG_SELECT_YESNO, MSG_SORT_CARD,
 )
 from engine.messages import (
-    IdleCmd, SelectCard, SelectPlace, SelectPosition, SelectUnselect, parse_idlecmd,
-    parse_select_card, parse_select_place, parse_select_position,
+    IdleCmd, SelectCard, SelectChain, SelectPlace, SelectPosition,
+    SelectUnselect, parse_idlecmd, parse_select_card, parse_select_chain,
+    parse_select_place, parse_select_position,
 )
 from engine.render import render_actions, render_state
 from llm.prompt import decision_prompt, system_prompt
 
 _NUM = re.compile(r"-?\d+")
+
+
+class _ChainMenu:
+    """Adapts a SelectChain into something render_actions() can print."""
+
+    def __init__(self, ch, db):
+        self.ch, self.db = ch, db
+
+    def actions(self):
+        out = [(5, i, c) for i, c in enumerate(self.ch.options)]
+        if self.ch.can_decline():
+            out.append((-1, -1, None))
+        return out
 
 
 @dataclass
@@ -113,7 +127,22 @@ class LLMAgent:
         if msg.id == MSG_SELECT_BATTLECMD:
             return struct.pack("<i", 3)               # to end phase
         if msg.id == MSG_SELECT_CHAIN:
-            return struct.pack("<i", -1)              # decline to chain
+            ch = parse_select_chain(msg.payload)
+            if not ch.options:
+                return SelectChain.decline()
+            self.viewer = ch.player
+            # Spending a handtrap or a quick effect is a real decision, so it
+            # goes to the model rather than to a default. Declining is offered
+            # as the last option, but only when the engine allows it.
+            menu = _ChainMenu(ch, self.db)
+            i = self._ask(duel, menu, len(menu.actions()))
+            picked = menu.actions()[i]
+            if picked[0] == -1:
+                self.history.append("you declined to respond")
+                return SelectChain.decline()
+            self.history.append(
+                f"you responded with {self.db.name(picked[2].code)}")
+            return SelectChain.encode(picked[1])
         if msg.id == MSG_SELECT_UNSELECT_CARD:
             return SelectUnselect.encode(0)
         if msg.id in (MSG_SELECT_CARD, MSG_SELECT_TRIBUTE):

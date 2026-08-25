@@ -28,6 +28,7 @@ IDLE_NAMES = {
     IDLE_SSET: "set spell/trap", IDLE_ACTIVATE: "activate",
     IDLE_TO_BP: "to battle phase", IDLE_TO_EP: "to end phase",
     IDLE_SHUFFLE_HAND: "shuffle hand",
+    -1: "decline to respond",
 }
 
 
@@ -266,3 +267,46 @@ class SelectOption:
 def parse_select_option(payload: bytes) -> SelectOption:
     r = _Reader(payload)
     return SelectOption(r.u8(), r.u8())
+
+
+@dataclass
+class SelectChain:
+    """MSG_SELECT_CHAIN - "do you want to respond?"
+
+    This is the most interesting decision type in the game: it is where
+    handtraps and quick effects are spent, and where a plan meets an
+    opponent's interruption.
+
+    `forced` matters. When it is set the effect is mandatory and -1 is
+    rejected, so a policy that always declines loops on MSG_RETRY forever.
+    """
+    player: int
+    spe_count: int
+    forced: bool
+    hint_timing: int
+    other_timing: int
+    options: list[CardRef]
+
+    def can_decline(self) -> bool:
+        return not self.forced
+
+    @staticmethod
+    def encode(index: int) -> bytes:
+        return struct.pack("<i", index)
+
+    @staticmethod
+    def decline() -> bytes:
+        return struct.pack("<i", -1)
+
+
+def parse_select_chain(payload: bytes) -> SelectChain:
+    r = _Reader(payload)
+    player, spe_count, forced = r.u8(), r.u8(), bool(r.u8())
+    hint, other = r.u32(), r.u32()
+    opts = []
+    for _ in range(r.u32()):
+        code, con, loc = r.u32(), r.u8(), r.u8()
+        seq, pos = r.u32(), r.u32()      # loc_info tail
+        desc, mode = r.u64(), r.u8()
+        opts.append(CardRef(code, con, loc, seq, desc, mode))
+    return SelectChain(player, spe_count, forced, hint, other, opts)

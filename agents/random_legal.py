@@ -20,8 +20,10 @@ from engine.constants import (
     MSG_SELECT_DISFIELD,
 )
 from engine.messages import (
-    IdleCmd, SelectCard, SelectPlace, SelectPosition, SelectUnselect, parse_idlecmd,
-    parse_select_card, parse_select_place, parse_select_position,
+    IdleCmd, SelectCard, SelectChain, SelectPlace, SelectPosition,
+    SelectUnselect, parse_idlecmd,
+    parse_select_card, parse_select_chain, parse_select_place,
+    parse_select_position,
 )
 
 
@@ -45,10 +47,14 @@ class RandomLegal:
             return struct.pack("<i", 3)
 
         if msg.id == MSG_SELECT_CHAIN:
-            # -1 declines. Chain options are 0..n-1; declining is always legal
-            # unless the chain is forced, in which case the engine retries and
-            # we fall through to index 0 on the next pass.
-            return struct.pack("<i", -1 if self.rng.random() < 0.7 else 0)
+            ch = parse_select_chain(msg.payload)
+            if not ch.options:
+                return SelectChain.decline()
+            if not ch.can_decline():
+                return SelectChain.encode(self.rng.randrange(len(ch.options)))
+            if self.rng.random() < 0.7:
+                return SelectChain.decline()
+            return SelectChain.encode(self.rng.randrange(len(ch.options)))
 
         if msg.id == MSG_SELECT_UNSELECT_CARD:
             # One index per round-trip - not the SELECT_CARD list format.
