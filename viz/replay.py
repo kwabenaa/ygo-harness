@@ -41,6 +41,7 @@ the duel.
 
 from __future__ import annotations
 
+import lzma
 import struct
 import time
 from pathlib import Path
@@ -142,6 +143,77 @@ def write_yrp(path: str | Path, **kw) -> Path:
     return path
 
 
+def parse_header(data: bytes) -> tuple[dict, bytes]:
+    """Split a replay into its header fields and its (decompressed) body.
+
+    Shared by both replay kinds. `_LastReplay.yrpX` is written incrementally
+    while a duel runs and is *uncompressed*; only `SaveReplay` sets
+    REPLAY_COMPRESSED and LZMA-compresses, so handle both.
+    """
+    (rid, version, flag, ts, datasize, hsh) = struct.unpack_from("<IIIIII", data, 0)
+    props = data[24:32]
+    off = 24 + 8                        # 6 u32 + props[8]
+    out = {"id": rid, "version": version, "flag": flag, "datasize": datasize,
+           "timestamp": ts}
+    if flag & REPLAY_EXTENDED_HEADER:
+        (out["header_version"],) = struct.unpack_from("<Q", data, off)
+        off += 8
+        out["seed"] = struct.unpack_from("<4Q", data, off)
+        off += 32
+    body = data[off:]
+    if flag & REPLAY_COMPRESSED:
+        # LzmaCompress writes 5 props bytes: one packed lc/lp/pb, then dict size.
+        lclppb, dict_size = props[0], struct.unpack_from("<I", props, 1)[0]
+        dec = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=[{
+            "id": lzma.FILTER_LZMA1, "dict_size": dict_size,
+            "lc": lclppb % 9, "lp": (lclppb // 9) % 5, "pb": lclppb // 45}])
+        body = dec.decompress(body, datasize)
+    return out, body
+
+
+def parse_yrpx(data: bytes) -> dict:
+    """Read a yrpX - the *message stream* replay EDOPro records for itself.
+
+    A yrp1 stores the questions' answers; a yrpX stores the `MSG_*` packets
+    the core emitted, which is the same stream `engine/messages.py` decodes.
+    That makes any yrpX EDOPro wrote a golden file for our decoders: real
+    client data, produced without our code anywhere in the loop.
+
+    Packets are `uint8 message, uint32 length, length bytes`
+    (`Replay::ReadNextPacket`). One pseudo-packet, OLD_REPLAY_MODE, carries a
+    whole embedded yrp1; it is recognised by its magic rather than by its id,
+    which is a client-side constant the core header does not define.
+    """
+    out, body = parse_header(data)
+    o = 40 * 2 if out["flag"] & REPLAY_SINGLE_MODE else None
+    if o is None:                       # NEWREPLAY: a count per side
+        o = 0
+        for _ in range(2):
+            (n,) = struct.unpack_from("<I", body, o); o += 4 + 40 * n
+    # yrpX stores no lp/hand/draw - ParseParams reads those only for yrp1.
+    if out["flag"] & REPLAY_64BIT_DUELFLAG:
+        (out["duel_flags"],) = struct.unpack_from("<Q", body, o); o += 8
+    else:
+        (out["duel_flags"],) = struct.unpack_from("<I", body, o); o += 4
+
+    packets, embedded = [], None
+    while o + 5 <= len(body):
+        msg = body[o]
+        (ln,) = struct.unpack_from("<I", body, o + 1)
+        if ln > len(body) - o - 5:
+            break
+        payload = body[o + 5:o + 5 + ln]
+        o += 5 + ln
+        if len(payload) >= 4 and struct.unpack_from("<I", payload, 0)[0] == REPLAY_YRP1:
+            embedded = payload          # OLD_REPLAY_MODE
+            continue
+        packets.append((msg, payload))
+    out["packets"] = packets
+    out["embedded_yrp"] = embedded
+    out["trailing_bytes"] = len(body) - o
+    return out
+
+
 def parse_yrp(data: bytes) -> dict:
     """Read back what build_yrp wrote, in the order EDOPro reads it.
 
@@ -150,15 +222,8 @@ def parse_yrp(data: bytes) -> dict:
     order here is transcribed from `Replay::ParseNames`/`ParseParams`/
     `ParseDecks`/`ParseResponses` so that at least the transcription is
     reviewed against the client rather than against itself."""
-    (rid, version, flag, ts, datasize, hsh) = struct.unpack_from("<IIIIII", data, 0)
-    off = 24 + 8                        # 6 u32 + props[8]
-    out = {"id": rid, "version": version, "flag": flag, "datasize": datasize}
-    if flag & REPLAY_EXTENDED_HEADER:
-        (out["header_version"],) = struct.unpack_from("<Q", data, off)
-        off += 8
-        out["seed"] = struct.unpack_from("<4Q", data, off)
-        off += 32
-    body = data[off:]
+    out, body = parse_header(data)
+    flag = out["flag"]
     o = 0
     out["names"] = []
     out["player_counts"] = []
