@@ -28,10 +28,24 @@ class CardDB:
     cheaper than getting the lifetime wrong.
     """
 
+    #: Databases whose entries should win a name clash, in order. Everything
+    #: else in BabelCDB is appended after these.
+    PREFERRED = ("cards.cdb", "cards-unofficial.cdb")
+
     def __init__(self, cdbs: list[Path] | None = None):
         if cdbs is None:
             base = DATA / "BabelCDB"
-            cdbs = [base / "cards.cdb", base / "cards-unofficial.cdb"]
+            # Load every database, not a hand-picked pair. Two of thirteen
+            # were loaded, so a puzzle using a pre-errata card - the GOAT
+            # entries - showed the agent a bare passcode it then spent its
+            # reasoning budget guessing at. Measured across the set: the ids
+            # in the other databases do not overlap cards.cdb at all, so
+            # loading them cannot shadow a current card. `row()` returns the
+            # first match, and PREFERRED comes first regardless.
+            ordered = [base / n for n in self.PREFERRED]
+            ordered += sorted(p for p in base.glob("*.cdb")
+                              if p.name not in self.PREFERRED)
+            cdbs = ordered
         self.conns = [sqlite3.connect(f"file:{p}?mode=ro", uri=True)
                       for p in cdbs if p.exists()]
         if not self.conns:
@@ -170,13 +184,16 @@ class ScriptProvider:
         self.root = root or (DATA / "CardScripts")
         if not self.root.exists():
             raise FileNotFoundError(f"{self.root} - run scripts/fetch_data.sh")
-        self.search_dirs = [
-            self.root,
-            self.root / "official",
-            self.root / "pre-release",
-            self.root / "pre-errata",
-            self.root / "unofficial",
-        ]
+        # Every subdirectory, discovered rather than listed. The hardcoded
+        # list omitted goat/ (191 scripts), rush/ (3087) and skill/ (174), and
+        # a card whose script is not found does not error - it simply has no
+        # effects, which is trap 1 wearing a different hat.
+        self.search_dirs = [self.root, self.root / "official"]
+        self.search_dirs += sorted(
+            d for d in self.root.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
+            and d not in self.search_dirs
+        )
         self._index: dict[str, Path] | None = None
 
     def _build_index(self) -> dict[str, Path]:

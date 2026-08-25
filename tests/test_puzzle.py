@@ -309,3 +309,44 @@ def test_select_card_candidates_are_real_cards():
 
     assert seen, "no card selection was ever reached - the test proves nothing"
     assert not bad, f"{len(bad)} of {seen} candidates are not real cards: {bad[:5]}"
+
+
+def test_every_puzzle_card_is_known():
+    """Every card a playable puzzle places must resolve, and have its script.
+
+    Static, so it covers the whole pool without running a duel. Two failures
+    it catches, both silent:
+
+    - A code missing from the loaded databases renders as a bare passcode.
+      Only two of BabelCDB's thirteen files were loaded, so a puzzle using a
+      pre-errata GOAT card showed the agent `<504700159>` and the model spent
+      its reasoning guessing what that was.
+    - A card script in a directory the provider does not search is not an
+      error; the card simply has no effects (trap 1). goat/, rush/ and skill/
+      were all unsearched, which is 3452 scripts.
+    """
+    from engine.carddb import CardDB, ScriptProvider
+    from engine.constants import TYPE_NORMAL
+
+    db, scripts = CardDB(), ScriptProvider()
+    unknown, scriptless = set(), set()
+    for puzzle in iter_puzzles():
+        if puzzle.skip_reason():
+            continue
+        for card in puzzle.cards:
+            row = db.row(card.code)
+            if row is None:
+                unknown.add(card.code)
+            elif row[2]:
+                # An alias is an alternate printing - different passcode, same
+                # card - and the core resolves it to the original's script, so
+                # there is correctly no cXXXXXXX.lua of its own.
+                continue
+            elif not (row[4] & TYPE_NORMAL) and scripts.read(f"c{card.code}.lua") is None:
+                scriptless.add((card.code, db.name(card.code)))
+
+    assert not unknown, f"{len(unknown)} codes not in any database: {sorted(unknown)[:8]}"
+    assert not scriptless, (
+        f"{len(scriptless)} effect cards have no script - they will have no "
+        f"abilities and nothing will say so: {sorted(scriptless)[:8]}"
+    )
