@@ -240,10 +240,15 @@ class LLMAgent:
         if self.verbose and self.plan:
             print(f"  [plan] {self.plan[:200]}")
 
-    #: Consecutive decisions with the next step unavailable before rebuilding.
-    #: One is normal - a step often needs something else to happen first. Two
-    #: in a row means the plan is not going to happen.
-    REPLAN_AFTER = 2
+    #: Consecutive dead decisions before rebuilding. Measured at 2 this never
+    #: fired: `is_dead` only reports a step that *names cards*, none of which
+    #: the menu offers, and a puzzle turn ends long before that happens twice
+    #: running. One is the right threshold - by the time you are at the Battle
+    #: Phase and your attacker is not on the menu, the plan is already dead.
+    REPLAN_AFTER = 1
+    #: Re-plans allowed per turn. Each is a full planning call, so an
+    #: unsatisfiable plan must not be able to spend the whole budget looping.
+    MAX_REPLANS = 2
 
     def _replan(self, duel, turn, menu_labels: list[str]) -> None:
         """Write a new plan from the board as it now is."""
@@ -346,7 +351,8 @@ class LLMAgent:
         # "step 3 is not available" and carried on improvising. Rebuild it.
         if self.tracker.steps and self.tracker.is_dead(menu_labels):
             self._dead_for += 1
-            if self._dead_for >= self.REPLAN_AFTER:
+            if (self._dead_for >= self.REPLAN_AFTER
+                    and self.stats.replans < self.MAX_REPLANS):
                 self._replan(duel, turn, menu_labels)
                 menu_labels = self._labels(cmd, menu_names)
         else:
