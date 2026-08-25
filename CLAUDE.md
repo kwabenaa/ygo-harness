@@ -34,6 +34,8 @@ never commit it.**
 | `bench/` | **sealed** eval protocol. Do not tune against it |
 | `viz/replay.py` | `.yrp` export - see the two `REPLAY_NEWREPLAY` traps below |
 | `scripts/verify_yrp.py` | replays a `.yrp` through EDOPro's own core/cards/scripts |
+| `scripts/deliberation_report.py` | planner/executor split, measured on free random duels |
+| `scripts/lethal_audit.py` | battle-phase misses, with the seed+turn to go watch |
 | `docs/PLAN.md`, `DECISIONS.md` | plan, and the record of decisions/deferrals |
 
 ## Traps

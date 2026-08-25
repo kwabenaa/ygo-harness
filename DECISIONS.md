@@ -77,6 +77,71 @@ clean. So the failure was never in the file.
 
 ---
 
+## The planner fires on chain resolutions it has no reason to
+
+**Status:** fixed, measured.
+
+`chain resolved` was an unconditional planning edge, and it dominated the
+split. Measured over 20 random-legal duels - free, because when to deliberate
+depends on the duel's counters and the board rather than on what the models
+answer (`scripts/deliberation_report.py`), planner calls per duel:
+
+| rule | planner/duel | |
+|---|---|---|
+| any chain resolves | 82.1 | |
+| ...and the board changed | 78.6 | −4% |
+| ...and the opponent was in the chain | 60.5 | −26% |
+| ...both | **57.2** | **−30%** |
+| ...never | 40.6 | −51% |
+
+The dominant term is **our own uncontested chains: 431 of 830 resolutions.**
+Nobody interfered, so the resolution is the plan working as planned, and
+paying the expensive model to look again is the single largest waste in the
+split. The board-change gate alone is nearly worthless (−4%) because a chain
+that resolves almost always changes something.
+
+`never` scores best and is still wrong: `opponent chained` fires when they
+*activate*, so a rule with no chain-resolution edge does its only thinking on
+a board mid-chain, before the interruption has resolved.
+
+Shipping `both`. `tests/test_deliberation.py` asserts the shipped rule and the
+table's winner stay the same thing, so the justification cannot drift away
+from what runs.
+
+**Note on reading that table:** random play makes worse choices, so its duels
+run longer and pile up more near-forced executor decisions than an agent's do.
+Planner calls *per duel* transfer; the percentage does not.
+
+---
+
+## "The agent wins by deck-out" was the wrong diagnosis
+
+**Status:** corrected by measurement. Small sample.
+
+The recorded symptom was that the agent plays real lines but closes games by
+deck-out rather than damage, with the implication that it was declining
+attacks. `scripts/lethal_audit.py` scores every battle-phase decision against
+the board the engine reports. Over 5 LLM duels and 31 battle decisions with an
+attack available:
+
+- it declined **0** of them;
+- a lethal board - opponent with an empty field, our ATK at or above their
+  life points - appeared **once**, and it attacked;
+- 3 of 5 duels ended on life points, not deck-out.
+
+So attack selection is not the problem, and the deck-out characterisation is
+itself partly stale - it likely predates the Lua globals fix, which
+invalidated everything measured before it. What is true is that the agent gets
+only ~6 battle decisions a duel: it rarely develops a board that can kill.
+**The work is in board development, not the battle phase.**
+
+Five duels is not many. Re-run at n=20 before building on it.
+
+The audit reports the seed and turn of every miss on purpose. Duels export to
+`.yrp`, so a miss is something to go and watch rather than infer.
+
+---
+
 ## Deferred: WindBot as an opponent
 
 **Status:** not in v1. Revisit after M2.
@@ -157,3 +222,11 @@ deterministic and has nothing to do with play quality.
 going first vs. going second. It is also direct evidence for the plan's
 argument that regret-against-achievable-value is the better primary metric -
 "did you win" is a weak signal in this game.
+
+**The evidence above is stale; the conclusion is not.** That 40/40 was measured
+before the Lua globals fix, when no card had an effect and every duel was
+necessarily a deck-out race. Re-measured afterwards (`scripts/lethal_audit.py
+--agent random -n 10`): player 0 won 4 of 10, and 7 of 10 ended on life points
+rather than deck-out. Only ten duels, so treat it as "the old number no longer
+reproduces" rather than as a new number. Split by turn order regardless - the
+reason to was never the size of the effect.

@@ -482,11 +482,13 @@ and **ablate it** — report flat vs. hierarchical as a result, not a config.
 
 ## Open
 
-- `chain resolved` fires ~35x per duel and pushes the planner/executor split
-  to 64/32, which is backwards. Should probably only fire when the resolved
-  chain actually changed our board.
-- The agent still wins by deck-out rather than damage. It plays real lines
-  but does not yet close games.
+- The agent does not close games, but **not for the reason recorded here
+  before**. Measured over 5 LLM duels (`scripts/lethal_audit.py`): it declined
+  0 of 31 available attacks, and a lethal board appeared once, which it took.
+  Attack selection is not the problem. It simply gets ~6 battle decisions a
+  duel and rarely develops a board that can kill, so the fix is upstream in
+  board development, not in the battle phase. Small sample; worth re-running
+  at n=20 before building anything on it.
 - Replays are only as portable as the card scripts they were played with.
   EDOPro re-simulates rather than replaying a recording, so a client whose
   scripts differ from `data/DATA_COMMITS` can desync mid-duel. Nothing checks
