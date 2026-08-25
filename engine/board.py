@@ -28,19 +28,65 @@ QUERY_TYPE = 0x8
 QUERY_LEVEL = 0x10
 QUERY_ATTACK = 0x100
 QUERY_DEFENSE = 0x200
+QUERY_RANK = 0x20
+QUERY_ATTRIBUTE = 0x40
+QUERY_RACE = 0x80
+QUERY_BASE_ATTACK = 0x400
+QUERY_BASE_DEFENSE = 0x800
+QUERY_EQUIP_CARD = 0x4000
+QUERY_TARGET_CARD = 0x8000
+QUERY_OVERLAY_CARD = 0x10000
+QUERY_COUNTERS = 0x20000
+QUERY_STATUS = 0x80000
+QUERY_LSCALE = 0x200000
+QUERY_RSCALE = 0x400000
 QUERY_LINK = 0x800000
 QUERY_END = 0x80000000
 
-#: Enough to render a field zone without paying for fields we never print.
-FIELD_FLAGS = QUERY_CODE | QUERY_POSITION | QUERY_TYPE | QUERY_ATTACK | QUERY_DEFENSE
-#: Hand and graveyard only need identity.
-LIST_FLAGS = QUERY_CODE | QUERY_TYPE
+#: Everything about an on-field card that a duel can change.
+#:
+#: These are *current* values, which is the entire reason to ask the engine
+#: instead of reading the card database: an effect that changes a Level, an
+#: Attribute or an ATK makes the printed value wrong, and a harness showing
+#: the printed value tells the agent something false without erroring. The
+#: previous set was five fields, chosen to avoid "paying for fields we never
+#: print" - but the cost is a few bytes of buffer, and the price of omitting
+#: them was an agent that could not see Xyz materials, counters, equips,
+#: negation, or any stat an effect had modified.
+#:
+#: scripts/coverage_report.py checks this against what card::get_infos can
+#: serialise, so a field we do not ask for is visible as a gap.
+FIELD_FLAGS = (
+    QUERY_CODE | QUERY_POSITION | QUERY_TYPE
+    | QUERY_LEVEL | QUERY_RANK | QUERY_ATTRIBUTE | QUERY_RACE
+    | QUERY_ATTACK | QUERY_DEFENSE | QUERY_BASE_ATTACK | QUERY_BASE_DEFENSE
+    | QUERY_EQUIP_CARD | QUERY_TARGET_CARD | QUERY_OVERLAY_CARD
+    | QUERY_COUNTERS | QUERY_STATUS | QUERY_LSCALE | QUERY_RSCALE | QUERY_LINK
+)
+
+#: Hand, graveyard, banished. No zone-relative fields - a card in the GY has
+#: no equip target and no counters - but Level and ATK still decide whether a
+#: card in hand can be summoned, or a GY card revived to any purpose.
+LIST_FLAGS = (
+    QUERY_CODE | QUERY_TYPE | QUERY_LEVEL | QUERY_RANK
+    | QUERY_ATTRIBUTE | QUERY_RACE | QUERY_ATTACK | QUERY_DEFENSE
+    # Base stats come along so `buffed` means the same thing everywhere.
+    # Without them every card off the field reads as buffed by its whole ATK.
+    | QUERY_BASE_ATTACK | QUERY_BASE_DEFENSE
+)
 
 LOCATION_NAMES = {
     LOCATION_DECK: "Deck", LOCATION_HAND: "Hand", LOCATION_MZONE: "M",
     LOCATION_SZONE: "S", LOCATION_GRAVE: "GY", LOCATION_REMOVED: "Banished",
     LOCATION_EXTRA: "Extra",
 }
+
+
+#: card::status bits worth naming. STATUS_DISABLED matters most: a negated
+#: monster keeps its stats and loses its effects, and nothing else about the
+#: board says so.
+STATUS_DISABLED = 0x0001
+STATUS_TO_ENABLE = 0x0002
 
 
 @dataclass
@@ -50,6 +96,38 @@ class CardInfo:
     type: int = 0
     attack: int = 0
     defense: int = 0
+    #: Current values. Effects move these away from the printed ones, which
+    #: is why they are read from the engine and not from the card database.
+    level: int = 0
+    rank: int = 0
+    attribute: int = 0
+    race: int = 0
+    base_attack: int = 0
+    base_defense: int = 0
+    link_rating: int = 0
+    link_marker: int = 0
+    lscale: int = 0
+    rscale: int = 0
+    status: int = 0
+    #: Xyz materials attached, by code. Detach costs are paid out of this, so
+    #: a card showing none is a card that cannot pay them.
+    overlay: tuple[int, ...] = ()
+    #: (counter type, how many).
+    counters: tuple[tuple[int, int], ...] = ()
+    #: Where an Equip Spell is attached: (controller, location, sequence).
+    equip_target: tuple[int, int, int] | None = None
+    #: What this card's continuous effect currently points at.
+    targets: tuple[tuple[int, int, int], ...] = ()
+
+    @property
+    def disabled(self) -> bool:
+        """Effects negated. Stats remain, abilities do not."""
+        return bool(self.status & STATUS_DISABLED)
+
+    @property
+    def buffed(self) -> int:
+        """Signed ATK difference from the printed value."""
+        return self.attack - self.base_attack
 
     @property
     def face_down(self) -> bool:
@@ -103,13 +181,58 @@ def _u32(b: bytes) -> int:
     return struct.unpack_from("<I", b)[0] if len(b) >= 4 else 0
 
 
+def _u64(b: bytes) -> int:
+    return struct.unpack_from("<Q", b)[0] if len(b) >= 8 else 0
+
+
+def _loc(b: bytes, off: int = 0) -> tuple[int, int, int] | None:
+    """One loc_info: uint8 controller, uint8 location, uint32 sequence, uint32
+    position. The core writes a zeroed one when there is nothing to point at,
+    so location 0 means "no target" rather than "the deck"."""
+    if len(b) < off + 10:
+        return None
+    con, loc = b[off], b[off + 1]
+    (seq,) = struct.unpack_from("<I", b, off + 2)
+    return None if loc == 0 else (con, loc, seq)
+
+
+def _codes(b: bytes) -> tuple[int, ...]:
+    """A uint32 count followed by that many uint32s."""
+    return tuple(_u32(b[4 + 4 * i:]) for i in range(_u32(b)))
+
+
 def _build(fields: dict[int, bytes]) -> CardInfo:
+    link = fields.get(QUERY_LINK, b"")
+    counters = fields.get(QUERY_COUNTERS, b"")
+    targets = fields.get(QUERY_TARGET_CARD, b"")
+    packed = _codes(counters)
     return CardInfo(
         code=_u32(fields.get(QUERY_CODE, b"")),
         position=_u32(fields.get(QUERY_POSITION, b"")),
         type=_u32(fields.get(QUERY_TYPE, b"")),
         attack=_u32(fields.get(QUERY_ATTACK, b"")),
         defense=_u32(fields.get(QUERY_DEFENSE, b"")),
+        level=_u32(fields.get(QUERY_LEVEL, b"")),
+        rank=_u32(fields.get(QUERY_RANK, b"")),
+        attribute=_u32(fields.get(QUERY_ATTRIBUTE, b"")),
+        # RACE is the one field the core serialises as a uint64.
+        race=_u64(fields.get(QUERY_RACE, b"")),
+        base_attack=_u32(fields.get(QUERY_BASE_ATTACK, b"")),
+        base_defense=_u32(fields.get(QUERY_BASE_DEFENSE, b"")),
+        # QUERY_LINK carries two uint32s: the rating, then the marker mask.
+        link_rating=_u32(link),
+        link_marker=_u32(link[4:]) if len(link) >= 8 else 0,
+        lscale=_u32(fields.get(QUERY_LSCALE, b"")),
+        rscale=_u32(fields.get(QUERY_RSCALE, b"")),
+        status=_u32(fields.get(QUERY_STATUS, b"")),
+        overlay=_codes(fields.get(QUERY_OVERLAY_CARD, b"")),
+        # Each counter packs its type low and its count high in one uint32.
+        counters=tuple((v & 0xFFFF, v >> 16) for v in packed),
+        equip_target=_loc(fields.get(QUERY_EQUIP_CARD, b"")),
+        targets=tuple(
+            t for i in range(_u32(targets))
+            if (t := _loc(targets, 4 + 10 * i)) is not None
+        ),
     )
 
 

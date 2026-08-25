@@ -54,9 +54,37 @@ def monster_label(db, c: CardInfo | None, *, reveal: bool) -> str:
         # Ours, so we may name it - but it is still face-down, which the
         # agent has to know before trying to attack with it.
         return f"[face-down {pos}: {name} {c.attack}/{c.defense}]"
+
+    bits = [name]
     if c.is_link:
-        return f"{name} {c.attack} ATK (Link)"
-    return f"{name} {c.attack}/{c.defense} {pos}"
+        bits.append(f"LINK-{c.link_rating}")
+    elif c.rank:
+        bits.append(f"Rk{c.rank}")
+    elif c.level:
+        bits.append(f"Lv{c.level}")
+
+    if c.is_link:
+        bits.append(f"{c.attack} ATK")
+    else:
+        bits.append(f"{c.attack}/{c.defense} {pos}")
+
+    # Current stats come from the engine, so a buff is visible as a gap from
+    # the printed value. Saying so is the difference between "this monster is
+    # bigger than its card says" and the agent silently disbelieving the board.
+    if c.buffed:
+        bits.append(f"(base {c.base_attack})")
+    if c.is_link and c.link_marker:
+        marks = [n for b, n in LINK_MARKER_NAMES if c.link_marker & b]
+        if marks:
+            bits.append("->" + "/".join(marks))
+    if c.overlay:
+        bits.append(f"[{len(c.overlay)} material"
+                    f"{'s' if len(c.overlay) != 1 else ''}]")
+    if c.counters:
+        bits.append("[" + ", ".join(f"{n} counters" for _t, n in c.counters) + "]")
+    if c.disabled:
+        bits.append("[NEGATED]")
+    return " ".join(bits)
 
 
 #: Zone names by sequence, verified against the core rather than assumed.
@@ -74,6 +102,13 @@ SZONE_MR3_PENDULUM = (6, 7)
 
 #: Which column each monster zone sits in, for "same column" effects.
 MZONE_COLUMN = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 1, 6: 3}
+
+#: Link arrow names, in reading order. Octal in the C header (trap 7).
+LINK_MARKER_NAMES = [
+    (0o100, "TL"), (0o200, "T"), (0o400, "TR"),
+    (0o010, "L"), (0o040, "R"),
+    (0o001, "BL"), (0o002, "B"), (0o004, "BR"),
+]
 
 
 def _zoned(labels: list[str], names: dict[int, str]) -> str:

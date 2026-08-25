@@ -200,7 +200,16 @@ def test_face_down_defence_is_not_reported_as_attack():
             return "Test Monster"
 
     db = FakeDB()
-    card = CardInfo(code=1, position=POS_FACEDOWN_DEFENSE, attack=1000, defense=1500)
+
+    def make(pos):
+        # base_* must be set: the renderer reports a buff as the gap between
+        # current and base, so a fixture leaving base at zero claims the whole
+        # ATK is a buff. Real cards always carry both, because LIST_FLAGS and
+        # FIELD_FLAGS both request them.
+        return CardInfo(code=1, position=pos, attack=1000, defense=1500,
+                        base_attack=1000, base_defense=1500)
+
+    card = make(POS_FACEDOWN_DEFENSE)
 
     mine = monster_label(db, card, reveal=True)
     assert "DEF" in mine and "ATK" not in mine, mine
@@ -209,12 +218,45 @@ def test_face_down_defence_is_not_reported_as_attack():
     # The opponent's face-down stays masked - position included.
     assert monster_label(db, card, reveal=False) == "[set]"
 
-    up_def = CardInfo(code=1, position=POS_FACEUP_DEFENSE, attack=1000, defense=1500)
+    up_def = make(POS_FACEUP_DEFENSE)
     assert monster_label(db, up_def, reveal=True).endswith("DEF")
 
-    up_atk = CardInfo(code=1, position=POS_FACEUP_ATTACK, attack=1000, defense=1500)
+    up_atk = make(POS_FACEUP_ATTACK)
     up_atk_label = monster_label(db, up_atk, reveal=True)
     assert up_atk_label.endswith("ATK")
     # Both numbers are shown regardless of position: a position change makes
     # the other one immediately relevant.
     assert "1000/1500" in up_atk_label
+
+
+def test_modified_stats_are_shown_as_modified():
+    """A buffed monster must not read as its printed stats.
+
+    Current ATK comes from the engine and the printed value from the card
+    database, and when they disagree the engine is right. Showing only the
+    current number leaves the agent unable to tell a 3200 ATK Link monster
+    from one pumped to 3200, which changes whether the buff can be removed.
+    """
+    from engine.board import STATUS_DISABLED, CardInfo
+    from engine.constants import POS_FACEUP_ATTACK
+    from engine.render import monster_label
+
+    class FakeDB:
+        def name(self, code):
+            return "Test Monster"
+
+    buffed = CardInfo(code=1, position=POS_FACEUP_ATTACK, attack=3200,
+                      defense=0, base_attack=3000, base_defense=0)
+    label = monster_label(FakeDB(), buffed, reveal=True)
+    assert "3200" in label and "base 3000" in label, label
+
+    negated = CardInfo(code=1, position=POS_FACEUP_ATTACK, attack=1000,
+                       defense=1000, base_attack=1000, base_defense=1000,
+                       status=STATUS_DISABLED)
+    assert "NEGATED" in monster_label(FakeDB(), negated, reveal=True)
+
+    xyz = CardInfo(code=1, position=POS_FACEUP_ATTACK, attack=2500,
+                   defense=2000, base_attack=2500, base_defense=2000,
+                   rank=4, overlay=(11, 22))
+    label = monster_label(FakeDB(), xyz, reveal=True)
+    assert "Rk4" in label and "2 materials" in label, label
