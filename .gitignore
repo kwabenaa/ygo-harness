@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Native build
+vendor/
+build/
+*.so
+*.dylib
+*.a
+*.o
+
+# Card data (pinned by hash, fetched by script)
+data/cards.cdb
+data/script/
+
+# Run artifacts
+*.yrp
+agents/runs/
+.env
+
+# build outputs (produced by scripts/build_core.sh)
+engine/lib/*.dylib
+engine/lib/CORE_COMMIT
+engine/lib/LUA_COMMIT

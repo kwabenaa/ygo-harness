@@ -1,0 +1,20 @@
+[project]
+name = "ygo-harness"
+version = "0.0.1"
+description = "An LLM agent and benchmark for Yu-Gi-Oh, built on the ygopro-core rules engine"
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0-or-later" }
+dependencies = [
+    "openai>=1.0",      # OpenAI-compatible: OpenRouter | Ollama | LM Studio | llama.cpp
+    "rich>=13.0",       # terminal live view
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
