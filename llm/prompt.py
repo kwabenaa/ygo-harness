@@ -43,6 +43,19 @@ Notation:
 - Battle position matters beyond combat: many effects can only be activated
   by, or can only target, a monster in a particular position.
 - "GY" is the graveyard.
+
+The field, and why zones matter:
+- Each side has 5 main monster zones [0]..[4], plus two shared Extra Monster
+  Zones shown as [EM-L] and [EM-R]. Extra Deck monsters normally arrive in an
+  Extra Monster Zone or in a zone a Link monster points to.
+- Spell/trap zones are [0]..[4], with [Field] for the Field Zone.
+- Every zone is shown even when empty, so you always know what is free.
+- Columns matter. Your zone [0] is in the same column as your opponent's
+  zone [4], your [1] with their [3], and so on - your zone N faces their
+  zone 4-N. [EM-L] sits in column 1 and [EM-R] in column 3.
+- When you are asked where to place a card, the choice is real: Link markers
+  point at specific zones, and some effects only apply to cards in a
+  particular column or zone. Do not treat placement as arbitrary.
 """
 
 

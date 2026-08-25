@@ -107,6 +107,10 @@ class Provider:
         )
         self.usage.add(resp)
         choice = resp.choices[0].message
+        # OpenRouter returns a reasoning model's thinking alongside the
+        # content. Keep the most recent one so a transcript can show *why*
+        # a decision was made, not just which index came back.
+        self.last_reasoning = (getattr(choice, "reasoning", None) or "")
         return (choice.content or "").strip()
 
 

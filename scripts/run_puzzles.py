@@ -70,9 +70,18 @@ def write_conversation(path: Path, *, title: str, header: list[str],
             "=" * 72,
             f"DECISION {step['n']}   (model: {step['model']})",
             "=" * 72,
+            "--- sent to the model ---",
             step["shown"],
             "",
-            f"--> model replied: {step['reply'].strip()[:400]!r}",
+        ]
+        # Untruncated on purpose. A record kept for diagnosis that elides the
+        # model's own words is missing the half that explains the choice.
+        if step.get("reasoning"):
+            lines += ["--- model reasoning ---", step["reasoning"].strip(), ""]
+        lines += [
+            "--- model replied ---",
+            step["reply"].strip() or "(empty)",
+            "",
             f"--> harness took option: {step['chose']}",
             "",
         ]
@@ -147,6 +156,10 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             if inner is not None:
                 unhandled.update(getattr(inner, "unhandled", {}) or {})
         result["unhandled"] = dict(unhandled)
+        split = getattr(p0, "split", None)
+        if split is not None:
+            result["planner_calls"] = split.planned
+            result["executor_calls"] = split.executed
         stats = getattr(p0, "stats", None)
         if stats is not None:
             result["asked"] = stats.asked
@@ -185,6 +198,9 @@ def main() -> int:
     ap.add_argument("--transcript", default=None, metavar="DIR",
                     help="write one readable file per puzzle showing exactly "
                          "what the agent was shown and what it chose")
+    ap.add_argument("--cheap", action="store_true",
+                    help="use the normal duel routing instead of sending every "
+                         "puzzle decision to the planner")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -200,6 +216,7 @@ def main() -> int:
         if args.agent == "random":
             return lambda player: RandomLegal(seed=args.seed + player * 1000)
 
+        from agents.deliberation import Deliberation
         from agents.hierarchical import HierarchicalAgent
         from llm.provider import from_config
         from llm.prompt import puzzle_system_prompt
@@ -213,6 +230,11 @@ def main() -> int:
             return HierarchicalAgent(
                 from_config("planner"), from_config("executor"), db, codes,
                 viewer=0, system=system, verbose=args.verbose,
+                # Everything to the planner. A puzzle is a single turn where
+                # every choice is irreversible and there is no later turn to
+                # recover in, so the turn-start edge would fire once and hand
+                # the whole solve to the cheap model.
+                split=Deliberation(always=not args.cheap),
             )
         return build
 

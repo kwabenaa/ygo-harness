@@ -29,7 +29,7 @@ from engine.messages import (
     parse_select_battlecmd, parse_select_card, parse_select_chain,
     parse_select_place, parse_select_position,
 )
-from engine.render import render_actions, render_state
+from engine.render import render_actions, render_state, zone_label
 from llm.prompt import decision_prompt, system_prompt
 
 _NUM = re.compile(r"-?\d+")
@@ -46,8 +46,36 @@ class _CardMenu:
         return [(99, i, CardInfo(code=c)) for i, c in enumerate(self.sc.codes)]
 
 
+class _PlaceMenu:
+    """Adapts a SelectPlace into a numbered menu of zones.
+
+    Placement used to fall through to `free[0]` - always the leftmost open
+    zone. That is not a neutral default: Link markers point at specific zones,
+    the Extra Monster Zones are shared, and effects key off columns, so
+    choosing the first free slot quietly throws away a real decision.
+    """
+
+    def __init__(self, sp, viewer: int):
+        self.free = sp.available()
+        self.viewer = viewer
+
+    def actions(self):
+        return [(i, i, None) for i in range(len(self.free))]
+
+    def names(self, db) -> dict:
+        from engine.render import zone_label
+        return {
+            i: zone_label(player, loc, seq, viewer=self.viewer)
+            for i, (player, loc, seq) in enumerate(self.free)
+        }
+
+
 class _ChainMenu:
     """Adapts a SelectChain into something render_actions() can print."""
+
+    #: Spending an interrupt - or declining to - is never a formality, so
+    #: these always go to the planner regardless of how narrow the menu is.
+    deliberate = True
 
     def __init__(self, ch, db):
         self.ch, self.db = ch, db
@@ -116,6 +144,7 @@ class LLMAgent:
                 print(f"  [provider error: {type(e).__name__}: {e}]")
             return 0
         step["reply"] = reply
+        step["reasoning"] = getattr(self.p, "last_reasoning", "") or ''
 
         m = _NUM.search(reply)
         if not m:
@@ -208,7 +237,19 @@ class LLMAgent:
             free = sp.available()
             if not free:
                 return struct.pack("<i", 0)
-            return SelectPlace.encode([free[0]] * max(sp.count, 1))
+            need = max(sp.count, 1)
+            if len(free) == 1:
+                return SelectPlace.encode([free[0]] * need)
+            menu = _PlaceMenu(sp, self.viewer)
+            i = self._ask(duel, menu, len(free), menu_names=menu.names(self.db))
+            chosen = free[i]
+            self.history.append(
+                f"you placed in {zone_label(*chosen, viewer=self.viewer)}")
+            # Multi-placement asks for `count` zones; take the chosen one
+            # first and fill from the rest rather than repeating it, which
+            # would be rejected as a duplicate.
+            rest = [z for z in free if z != chosen]
+            return SelectPlace.encode(([chosen] + rest)[:need])
         if msg.id == MSG_SELECT_POSITION:
             pos = parse_select_position(msg.payload).available()
             return SelectPosition.encode(pos[0] if pos else 0x1)

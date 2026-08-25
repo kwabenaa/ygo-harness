@@ -44,7 +44,7 @@ class Rule(Deliberation):
     def at_chain_end(self, duel, viewer) -> str | None:
         raise NotImplementedError
 
-    def why(self, duel, viewer):
+    def why(self, duel, viewer, cmd=None):
         if duel.turn_count != self._turn:
             self._turn = duel.turn_count
             self._chain = duel.chain_count
@@ -101,7 +101,52 @@ class NoChainEdge(Rule):
         return None
 
 
-VARIANTS = [Always, BoardChanged, OpponentInvolved, Both, NoChainEdge]
+class Shape(Both):
+    """The in-use chain edges, plus the menu-shape triggers.
+
+    The counter edges only fire when something *happens* - a turn begins, an
+    interruption lands - so a long combo turn was one planner call followed
+    by a run of executor calls, whatever those decisions were worth. These
+    triggers ask what is on the menu instead. They read only the menu, never
+    the model's answer, so this stays a free measurement.
+    """
+
+    label = "...plus menu-shape triggers  <- new"
+
+    def why(self, duel, viewer, cmd=None):
+        return super().why(duel, viewer, cmd) or self.shape_of(cmd)
+
+
+VARIANTS = [Always, BoardChanged, OpponentInvolved, Both, NoChainEdge, Shape]
+
+
+def _menu(msg):
+    """The action menu for a decision, where one can be parsed cheaply.
+
+    Only the menus the shape triggers actually look at. Anything else scores
+    as "no menu", which is the conservative reading - it can only undercount
+    planner calls, never invent them.
+    """
+    from engine.constants import MSG_SELECT_BATTLECMD, MSG_SELECT_CHAIN, MSG_SELECT_IDLECMD
+    from engine.messages import (
+        parse_idlecmd, parse_select_battlecmd, parse_select_chain,
+    )
+    try:
+        if msg.id == MSG_SELECT_IDLECMD:
+            return parse_idlecmd(msg.payload)
+        if msg.id == MSG_SELECT_BATTLECMD:
+            return parse_select_battlecmd(msg.payload)
+        if msg.id == MSG_SELECT_CHAIN:
+            ch = parse_select_chain(msg.payload)
+            if ch.options:
+                class _Chain:
+                    deliberate = True
+                    def actions(self):
+                        return list(ch.options)
+                return _Chain()
+    except Exception:
+        return None
+    return None
 
 
 class Counting:
@@ -114,8 +159,9 @@ class Counting:
 
     def __call__(self, msg, duel) -> bytes:
         if msg is not None and msg.id in DECISION_MESSAGES:
+            cmd = _menu(msg)
             for r in self.rules:
-                r.note(duel, self.viewer, r.why(duel, self.viewer))
+                r.note(duel, self.viewer, r.why(duel, self.viewer, cmd))
         return self.inner(msg, duel)
 
 

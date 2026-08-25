@@ -47,7 +47,18 @@ class Deliberation:
     to think about the board we actually have to play around.
     """
 
-    def __init__(self):
+    #: Menus at least this wide are branch points rather than formalities.
+    #: Chosen as a threshold on the *menu*, not on anything the model says, so
+    #: scripts/deliberation_report.py still measures the rule for free.
+    WIDE_CHOICE = 6
+
+    def __init__(self, *, wide_choice: int | None = None, always: bool = False):
+        #: Route every decision to the planner. Correct for puzzles: a puzzle
+        #: is one turn in which every choice is final, there is no later turn
+        #: to recover in, and the turn-start edge would otherwise fire once
+        #: and hand the entire solve to the cheap model.
+        self.always = always
+        self.wide_choice = self.WIDE_CHOICE if wide_choice is None else wide_choice
         self.planned = 0
         self.executed = 0
         self.triggers: dict[str, int] = {}
@@ -56,7 +67,9 @@ class Deliberation:
         self._chain_end = 0
         self._planned_sig: tuple | None = None
 
-    def why(self, duel, viewer: int) -> str | None:
+    def why(self, duel, viewer: int, cmd=None) -> str | None:
+        if self.always:
+            return "every decision is final"
         if duel.turn_count != self._turn:
             self._turn = duel.turn_count
             self._chain = duel.chain_count
@@ -73,6 +86,30 @@ class Deliberation:
                 return None             # our own chain, uncontested
             if board_signature(duel, viewer) != self._planned_sig:
                 return "opponent's chain changed the board"
+        return self.shape_of(cmd)
+
+    def shape_of(self, cmd) -> str | None:
+        """Deliberate on what is being asked, not only on when.
+
+        The counter edges above catch re-planning moments - a turn beginning,
+        an interruption landing. They say nothing about decisions *within* a
+        turn, so a long combo turn was one planner call followed by twenty
+        executor calls, and a puzzle was one planner call followed by the
+        whole solve. These triggers close that gap, and all three read only
+        the menu, so the rule stays measurable on free random duels.
+        """
+        if cmd is None:
+            return None
+        if getattr(cmd, "deliberate", False):
+            return "interrupt window"
+        if getattr(cmd, "activatable", None):
+            return "effect activation available"
+        try:
+            n = len(cmd.actions())
+        except Exception:                       # menus without an action list
+            return None
+        if n >= self.wide_choice:
+            return f"wide choice ({n} options)"
         return None
 
     def note(self, duel, viewer: int, why: str | None) -> None:

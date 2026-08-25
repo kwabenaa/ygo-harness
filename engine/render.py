@@ -59,17 +59,57 @@ def monster_label(db, c: CardInfo | None, *, reveal: bool) -> str:
     return f"{name} {c.attack}/{c.defense} {pos}"
 
 
-def _row(labels: list[str]) -> str:
-    kept = [x for x in labels if x != "-"]
-    return "  ".join(kept) if kept else "empty"
+#: Zone names by sequence, verified against the core rather than assumed.
+#: Monster zones 0-4 are the main row; 5 and 6 are the Extra Monster Zones.
+#: card::get_column_zone maps EMZ 5 onto column 1 and EMZ 6 onto column 3, and
+#: pairs your zone `s` with your opponent's zone `4 - s` in the same column.
+#: Spell/trap sequence 5 is the Field Zone (field.cpp reads list_szone[5]).
+MZONE_NAMES = {5: "EM-L", 6: "EM-R"}
+#: 6 and 7 are the separate Pendulum Zones, which exist only under Master
+#: Rule 3. Under MR4/MR5 the Pendulum Zones are spell/trap 0 and 4, and these
+#: two slots stay empty forever - so they are hidden unless something is in
+#: them, rather than printed as noise at every decision point.
+SZONE_NAMES = {5: "Field", 6: "P-L", 7: "P-R"}
+SZONE_MR3_PENDULUM = (6, 7)
+
+#: Which column each monster zone sits in, for "same column" effects.
+MZONE_COLUMN = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 1, 6: 3}
+
+
+def _zoned(labels: list[str], names: dict[int, str]) -> str:
+    """Label every slot with its zone, including the empty ones.
+
+    Zone identity is not cosmetic. Link markers point at specific zones, the
+    Extra Monster Zones are shared and restrict what may be summoned where,
+    and a pile of card effects key off columns. Collapsing the row to a list
+    of the cards that happen to be present - which is what this used to do -
+    threw all of that away before the agent ever saw it.
+    """
+    parts = []
+    for i, label in enumerate(labels):
+        tag = names.get(i, str(i))
+        parts.append(f"[{tag}]{label}")
+    return "  ".join(parts) if parts else "empty"
+
+
+def _trim_pendulum(labels: list[str]) -> list[str]:
+    """Drop the Master Rule 3 pendulum slots when they are empty and unused."""
+    while (len(labels) - 1 in SZONE_MR3_PENDULUM and labels
+           and labels[-1] == "-"):
+        labels = labels[:-1]
+    return labels
 
 
 def render_side(db, b: Board, *, viewer: int, label: str) -> list[str]:
     """Render one player's side. `viewer` decides what is masked."""
     own = (b.player == viewer)
     lines = [
-        f"{label}  M: {_row([monster_label(db, c, reveal=own) for c in b.monsters])}",
-        f"{' ' * len(label)}  S: {_row([card_label(db, c, reveal=own) for c in b.spells])}",
+        f"{label}  M: "
+        + _zoned([monster_label(db, c, reveal=own) for c in b.monsters],
+                 MZONE_NAMES),
+        f"{' ' * len(label)}  S: "
+        + _zoned(_trim_pendulum(
+            [card_label(db, c, reveal=own) for c in b.spells]), SZONE_NAMES),
     ]
     pad = " " * len(label)
     if own:
@@ -105,6 +145,22 @@ def render_state(duel, db, viewer: int, *, turn: int | None = None,
     lines += render_side(db, me, viewer=viewer, label="YOU")
     lines += render_side(db, opp, viewer=viewer, label="OPP")
     return "\n".join(lines)
+
+
+def zone_label(player: int, loc: int, seq: int, *, viewer: int) -> str:
+    """Human-readable name for one (player, location, sequence) placement."""
+    from .constants import LOCATION_MZONE
+
+    side = "your" if player == viewer else "opponent's"
+    if loc == LOCATION_MZONE:
+        if seq in MZONE_NAMES:
+            which = "left" if seq == 5 else "right"
+            return (f"{side} Extra Monster Zone ({which}, column "
+                    f"{MZONE_COLUMN[seq]})")
+        return f"{side} monster zone {seq} (column {MZONE_COLUMN.get(seq, seq)})"
+    if seq == 5:
+        return f"{side} Field Zone"
+    return f"{side} spell/trap zone {seq} (column {seq})"
 
 
 def render_actions(db, cmd, names: dict | None = None) -> str:
