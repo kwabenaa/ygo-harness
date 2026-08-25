@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.random_legal import RandomLegal
 from engine.carddb import CardDB, ScriptProvider
-from engine.constants import WIN_REASON_DECKOUT
+from engine.constants import WIN_REASON_DECKOUT, WIN_REASON_LP
 from engine.deck import Deck
 from engine.duel import Duel
 from engine.ocgapi import load
@@ -44,19 +44,34 @@ def test_random_play_reaches_more_of_the_message_space():
     assert len(msgs) >= 18, f"only reached {len(msgs)} message types"
 
 
-def test_random_games_are_deckout_races():
-    """Documents why win rate vs. random is not a skill signal.
+def test_random_games_end_by_damage():
+    """The baseline must actually attack.
 
-    Random play almost never deals lethal, so games go to deck-out. The player
-    going second draws one more card over the game and decks out first - so
-    player 0 wins essentially always, by turn order rather than by play. Any
-    win-rate metric therefore has to control for going first/second.
+    This assertion is inverted from what it originally was, and the history is
+    the point. When the baseline never attacked, every game became a deck-out
+    race - and because the player going second draws one extra card over the
+    game, player 0 won 40/40 by turn order alone, with no relation to play
+    quality. That made win rate useless as a signal.
+
+    With attacks enabled, games end by LP damage and the win split becomes
+    competitive. Turn order still matters enough that results must be reported
+    split by going first vs. second, but it is no longer the whole story.
     """
     results = run_many()
     reasons = Counter(
         m.payload[1] for r in results for m in r["messages"]
         if m.id == 5 and len(m.payload) > 1
     )
-    assert reasons[WIN_REASON_DECKOUT] >= len(results) * 0.8, (
-        f"expected mostly deck-outs, got {dict(reasons)}"
+    assert reasons[WIN_REASON_LP] > reasons[WIN_REASON_DECKOUT], (
+        f"expected mostly LP-damage wins; a baseline that does not attack "
+        f"makes every game a deck-out race. Got {dict(reasons)}"
+    )
+
+
+def test_both_players_can_win():
+    """Guards against a return of the 40-0 turn-order artifact."""
+    winners = Counter(r["winner"] for r in run_many(16))
+    assert len(winners) > 1, (
+        f"only one player ever wins ({dict(winners)}) - that is turn order, "
+        f"not play"
     )
