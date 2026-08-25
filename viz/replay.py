@@ -3,22 +3,36 @@
 A replay is (deck lists, seed, ordered response log) - exactly what the duel
 already records for reproducibility, so exporting one is nearly free and gets
 the real EDOPro client, with card art and animation, for no rendering work.
+EDOPro does not store a picture of the duel: it re-simulates it in its own
+core from the seed and feeds our responses back in (`ReplayMode::StartDuel`
+in `gframe/old_replay_mode.cpp`).
 
 Format (edopro/gframe/replay.h and replay.cpp):
 
-    ExtendedReplayHeader
+    ExtendedReplayHeader                                        (72 bytes)
         ReplayHeader  id, version, flag, timestamp, datasize, hash  (6x u32)
                       props[8]
-        header_version  u64
+        header_version  u64   must be <= 1 or ParseReplayHeader rejects it
         seed[4]         u64   <- the Xoshiro256 state we duel with
     body (uncompressed when REPLAY_COMPRESSED is unset)
-        player names       40 bytes each, UTF-16LE, 2 players
+        home player count  u32   <- REPLAY_NEWREPLAY only
+        home names         40 bytes each, UTF-16LE
+        opposing count     u32   <- REPLAY_NEWREPLAY only
+        opposing names     40 bytes each
         start_lp           u32
         start_hand         u32
         draw_count         u32
         duel flags         u64  (with REPLAY_64BIT_DUELFLAG)
         per player: main count u32 + codes, extra count u32 + codes
+        custom rule cards  u32 count + codes   <- REPLAY_NEWREPLAY only
         responses          u8 length + that many bytes, repeated
+
+Two fields exist only because we set REPLAY_NEWREPLAY, and both are silent
+killers if omitted - `Replay::ParseNames` reads the per-side player count as
+a u32 before any name, so leaving it out makes the client read the first four
+bytes of "Player 1" as a count of seven million players; `Replay::ParseDecks`
+reads the custom-rule-card count immediately after the decks, so leaving it
+out makes it consume the first response byte instead.
 
 Note the deck list written is the *shuffled* order, not the source decklist.
 The engine does not shuffle - we do - so the dealt order is what reproduces
@@ -45,10 +59,22 @@ REPLAY_EXTENDED_HEADER = 0x200
 REPLAY_YRP1 = 0x31707279
 REPLAY_YRPX = 0x58707279
 
-#: ExtendedReplayHeader::latest_header_version
+#: ExtendedReplayHeader::latest_header_version. Anything higher is rejected,
+#: and `CanBePlayedInOldMode` requires exactly 1.
 HEADER_VERSION = 1
-#: Client version stamp. EDOPro checks this loosely for yrp1 replays.
-CLIENT_VERSION = 0x1361
+
+#: gframe/config.h packs the client and core versions into one u32. The yrp1
+#: path hardcodes `legacy_race_size = false` so it never reads this back, but
+#: other paths derive it from the core major - claim the core we link (11.0)
+#: rather than leaving it 0, which would read as a pre-10 legacy core.
+_EDOPRO_VERSION = (41, 0)
+_CORE_VERSION = (11, 0)
+CLIENT_VERSION = (
+    (_EDOPRO_VERSION[0] & 0xFF)
+    | ((_EDOPRO_VERSION[1] & 0xFF) << 8)
+    | ((_CORE_VERSION[0] & 0xFF) << 16)
+    | ((_CORE_VERSION[1] & 0xFF) << 24)
+)
 
 
 def _name(s: str) -> bytes:
@@ -67,6 +93,7 @@ def build_yrp(
     start_lp: int = 8000,
     start_hand: int = 5,
     draw_count: int = 1,
+    rule_cards: list[int] = (),
 ) -> bytes:
     """Serialise one duel into a .yrp byte string.
 
@@ -74,7 +101,8 @@ def build_yrp(
     OCG_DuelNewCard - not the order they appear in the .ydk.
     """
     body = bytearray()
-    for i in range(2):
+    for i in range(2):                  # one player per side, count-prefixed
+        body += struct.pack("<I", 1)
         body += _name(names[i])
     body += struct.pack("<III", start_lp, start_hand, draw_count)
     body += struct.pack("<Q", duel_flags)
@@ -83,6 +111,8 @@ def build_yrp(
         body += b"".join(struct.pack("<I", c) for c in main)
         body += struct.pack("<I", len(extra))
         body += b"".join(struct.pack("<I", c) for c in extra)
+    body += struct.pack("<I", len(rule_cards))
+    body += b"".join(struct.pack("<I", c) for c in rule_cards)
     for r in responses:
         if not r or len(r) > 255:
             continue                    # length field is a single byte
@@ -113,8 +143,13 @@ def write_yrp(path: str | Path, **kw) -> Path:
 
 
 def parse_yrp(data: bytes) -> dict:
-    """Read back what build_yrp wrote. Round-tripping is the only check we
-    can run without EDOPro itself."""
+    """Read back what build_yrp wrote, in the order EDOPro reads it.
+
+    Round-tripping through this is a consistency check, not a compatibility
+    one - it only catches drift between our writer and our reader. The field
+    order here is transcribed from `Replay::ParseNames`/`ParseParams`/
+    `ParseDecks`/`ParseResponses` so that at least the transcription is
+    reviewed against the client rather than against itself."""
     (rid, version, flag, ts, datasize, hsh) = struct.unpack_from("<IIIIII", data, 0)
     off = 24 + 8                        # 6 u32 + props[8]
     out = {"id": rid, "version": version, "flag": flag, "datasize": datasize}
@@ -126,20 +161,42 @@ def parse_yrp(data: bytes) -> dict:
     body = data[off:]
     o = 0
     out["names"] = []
-    for _ in range(2):
-        out["names"].append(body[o:o + 40].decode("utf-16-le").rstrip("\x00"))
-        o += 40
+    out["player_counts"] = []
+    for _ in range(2):                  # home side, then opposing side
+        if flag & REPLAY_SINGLE_MODE:
+            n = 1                       # single mode writes two bare names
+        elif flag & REPLAY_NEWREPLAY:
+            (n,) = struct.unpack_from("<I", body, o); o += 4
+        else:
+            n = 2 if flag & REPLAY_TAG else 1
+        out["player_counts"].append(n)
+        for _ in range(n):
+            out["names"].append(body[o:o + 40].decode("utf-16-le").rstrip("\x00"))
+            o += 40
     out["start_lp"], out["start_hand"], out["draw_count"] = struct.unpack_from("<III", body, o)
     o += 12
     (out["duel_flags"],) = struct.unpack_from("<Q", body, o)
     o += 8
+    out["scriptname"] = None
+    if flag & REPLAY_SINGLE_MODE:
+        (slen,) = struct.unpack_from("<H", body, o); o += 2
+        out["scriptname"] = body[o:o + slen].decode("utf-8", "replace"); o += slen
     out["decks"] = []
-    for _ in range(2):
+    # Single mode builds its field from the script, so it stores no decks -
+    # unless it is a hand test, which stores them and nothing else.
+    n_decks = 0 if (flag & REPLAY_SINGLE_MODE and not (flag & REPLAY_HAND_TEST)) \
+        else sum(out["player_counts"])
+    for _ in range(n_decks):
         (n,) = struct.unpack_from("<I", body, o); o += 4
         main = list(struct.unpack_from(f"<{n}I", body, o)); o += 4 * n
         (m,) = struct.unpack_from("<I", body, o); o += 4
         extra = list(struct.unpack_from(f"<{m}I", body, o)); o += 4 * m
         out["decks"].append((main, extra))
+    out["rule_cards"] = []
+    if flag & REPLAY_NEWREPLAY and not (flag & REPLAY_SINGLE_MODE) \
+            and not (flag & REPLAY_HAND_TEST):
+        (n,) = struct.unpack_from("<I", body, o); o += 4
+        out["rule_cards"] = list(struct.unpack_from(f"<{n}I", body, o)); o += 4 * n
     resp = []
     while o < len(body):
         ln = body[o]; o += 1
