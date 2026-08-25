@@ -50,7 +50,9 @@ _ADD_CARD = re.compile(r"Debug\.AddCard\(([^)]*)\)")
 _MESSAGE = re.compile(r"--\[\[message(.*?)\]\]", re.S)
 _ORIGINAL_NAME = re.compile(r"^--\s*Original Puzzle Name:\s*(.+)$", re.M)
 _OBJECTIVE = re.compile(r"^\s*(Objective:.*)$", re.M)
-_COMPLEXITY = re.compile(r"Complexity:\s*(\d+)\s*/\s*10", re.I)
+# Authors write "3/10", "2+/10" and "?/10". Take the digits where there
+# are any; the modifier is not worth modelling.
+_COMPLEXITY = re.compile(r"Complexity:\s*(\d+)\s*\+?\s*/\s*10", re.I)
 
 
 def _strip_comments(text: str) -> str:

@@ -109,6 +109,8 @@ value function, no search referee and no authored solution to diff against.
   0 harness faults, 0 messages answered generically
 ```
 
+Read the *ran clean* number, not the solved count.
+
 Getting there took four missing decision types and two wrong response formats.
 The instructive part is how they presented: a message the loop does not
 recognise never becomes the pending decision, so the policy keeps answering the
@@ -128,6 +130,46 @@ never summed.
 Puzzles are a **debug tool, not the benchmark**. They have no live opponent, so
 they test single-turn combo execution and say nothing about planning under
 interruption — which is the thesis. `bench/` stays sealed.
+
+### What the puzzles found
+
+Running them turned up six harness defects, and only two were what the error
+message said. Four blocking messages were missing from the decision table, and
+a missing blocking message does not present as an unhandled message — the loop
+never updates the pending decision, so the policy answers the *previous*
+question forever and the failure is reported against whatever happened to be
+pending.
+
+That pattern is why the project stopped hunting gaps duel by duel.
+`scripts/coverage_report.py` walks the vendored core instead and reports what
+it can tell us against what we use:
+
+```
+QUERY fields   19/26 requested      (was 5/26)
+MESSAGES       76/76 named          (was 29/76)
+               39/72 reach the agent
+```
+
+The first audit found that Level, Rank, Attribute, Link rating and markers,
+base ATK, Xyz materials, counters, equips and negation status were never
+queried at all — so a monster whose Level an effect had changed was reported
+at its printed value, and a negated monster looked ordinary. It also found
+that `MSG_SELECT_CARD` was being misparsed: the core writes a 10-byte
+`loc_info` per entry and we skipped 4, so every candidate after the first was
+read out of the middle of the previous one. Nothing raised, because the engine
+acts on the index the agent returns rather than the name.
+
+### Where the agent actually is
+
+```
+Master Rule 5 puzzles:  1 / 20 solved     (random-legal: 0 / 20)
+                       20 / 20 run clean
+```
+
+Card text and full stats, field zones, battle position, engine events and
+all-planner routing have each been fixed, and **none of them moved the solve
+rate**. That is worth stating plainly: the remaining gap is not obviously an
+information gap.
 
 ## Layout
 

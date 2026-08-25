@@ -543,6 +543,50 @@ M1 recorded and never acted on.
 Read the *ran clean* number, not the solved count. A puzzle the agent loses is
 a puzzle the agent lost; a puzzle that raises or stalls is a bug in `engine/`.
 
+## Progress: the harness is fixed, the agent is not
+
+Measured on the 20 Master Rule 5 puzzles, which is the working set:
+
+| | random-legal | agent |
+|---|---|---|
+| solved | 0/20 | **1/20** |
+| ran clean | 20/20 | 20/20 |
+| replies unparseable or out of range | — | **0 of 240** |
+
+Five rounds of fixes, each of which looked like the binding constraint and
+none of which moved the solve rate:
+
+1. **Card data.** The corpus was name plus effect text. No Level, Rank, Link
+   rating, ATK, DEF, Attribute, Race, Pendulum scale, markers or archetype -
+   all of which material requirements are arithmetic over.
+2. **Battle position.** `monster_label` tested `POS_FACEUP_DEFENSE` alone, so
+   a monster set face-down in defence was described as being in attack
+   position, with its ATK where its DEF belonged.
+3. **Field zones.** The board collapsed each row to the cards present, so
+   zone identity - which of the five main zones, whether an Extra Monster Zone
+   was free, what column anything was in - never reached the agent at all.
+   Placement was not a decision either: `MSG_SELECT_PLACE` took `free[0]`.
+4. **Engine state.** 5 of 26 query fields were requested. Level and Attribute
+   came from the card database rather than the engine, so any effect that
+   changed them was invisible; so were Xyz materials, counters, equips and
+   negation.
+5. **Events and routing.** The agent saw only its own actions - no negations,
+   reveals, summons or dice - and did not know what it was being asked, since
+   `HINT_SELECTMSG` was never surfaced. Routing sent one planner call per turn
+   and the rest to a cheap model with no reasoning; puzzles now go entirely to
+   the planner.
+
+**The honest reading:** the harness was badly incomplete and is now largely
+not, but the agent's failure was not primarily an information failure. The
+untested lever is the planner itself - `qwen3.7-flash` on a 256-token
+reasoning budget, which is very little for a multi-step OTK.
+
+**Working protocol.** A full Master Rule 5 run is ~30 minutes and several
+hundred calls, and answers a question one puzzle already answers. Iterate on
+the simplest failing puzzle; run the set only to confirm an additional solve.
+
+---
+
 ## Correction: the agent is a network *client*, not a host
 
 An earlier reading of the deferred network transport assumed we would host.

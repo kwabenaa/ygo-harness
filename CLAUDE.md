@@ -23,6 +23,11 @@ Exercising the harness costs nothing: `python scripts/run_puzzles.py` plays
 EDOPro's puzzle collection with the random-legal policy, no tokens involved.
 Read the **"ran clean"** line, not the solved count — see the conventions.
 
+`python scripts/coverage_report.py` is the authority on what the engine can
+tell us versus what we use. Check it before concluding that some piece of
+state is unavailable — several times it was available and simply never asked
+for. `--missing-only` lists the gaps.
+
 `tests/test_yrp_edopro.py` and one case in `tests/test_message_stream.py`
 need an EDOPro install and **skip silently without one** — a green run does
 not mean they ran. Install it from
@@ -42,6 +47,8 @@ tests** — see trap 11.
 | `engine/board.py` | board state via `OCG_DuelQuery*` |
 | `engine/render.py` | compact text rendering, **hidden-info masking** |
 | `engine/puzzle.py` | EDOPro puzzle scripts: locating, parsing, loading |
+| `engine/declare.py` | the RPN filter `MSG_ANNOUNCE_CARD` ships, ported from the core |
+| `llm/events.py` | engine messages -> lines the agent reads |
 | `llm/provider.py` | one OpenAI-compatible client (OpenRouter/Ollama/…) |
 | `llm/models.yaml` | model roles, with the measurements that chose them |
 | `agents/` | policies. Anything goes here |
@@ -49,6 +56,7 @@ tests** — see trap 11.
 | `viz/replay.py` | `.yrp` export - see the two `REPLAY_NEWREPLAY` traps below |
 | `scripts/verify_yrp.py` | replays a `.yrp` through EDOPro's own core/cards/scripts |
 | `scripts/run_puzzles.py` | runs the puzzle collection; separates harness faults from losses |
+| `scripts/coverage_report.py` | what the core can report vs. what we use |
 | `scripts/deliberation_report.py` | planner/executor split, measured on free random duels |
 | `scripts/lethal_audit.py` | battle-phase misses, with the seed+turn to go watch |
 | `docs/PLAN.md`, `DECISIONS.md` | plan, and the record of decisions/deferrals |
@@ -236,6 +244,23 @@ See `llm/models.yaml`. Two findings worth not re-deriving:
   single-turn, no-opponent test of combo execution, so they say nothing about
   planning under interruption — the actual thesis. Tuning against them is
   fine and expected. The benchmark remains the sealed Sky Striker splits.
+- **Iterate on one puzzle, not the set.** A full Master Rule 5 run is 20
+  puzzles, several hundred model calls and roughly half an hour of wall time,
+  and it answers a question a single puzzle already answers: did this change
+  help. Debug against the simplest puzzle that still fails —
+  `--hardest 1` for the other end, or `--filter` by name. **Only run the whole
+  set once a change has solved an additional puzzle on the single-puzzle
+  test.** The set is for confirming a result, never for finding one.
+
+  The current ladder, easiest first, is
+  `[GX_Spirit_Caller]I05_Home_of_the_Fiends` (2/10), `Naim_MathMech` (3/10),
+  `Naim_Trickstar_Firewall` (5/10). Solved so far: `Tutorial_Ritual_Basic`.
+
+- **Tutorials are not benchmarks.** Several are ruling demonstrations rather
+  than solvable puzzles — `Tutorial_Ruling_Pain_Lanius` exists to show that a
+  play is *illegal* — and the collection's own README says tutorials may be
+  unsolvable. Exclude them when measuring; `Puzzle.is_tutorial` marks them.
+
 - **Research findings go back into the docs in the same change that found
   them.** `docs/PLAN.md` for anything that moves a milestone or invalidates
   an estimate, `README.md` for anything that changes what the project claims,
