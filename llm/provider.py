@@ -15,6 +15,7 @@ pin an exact provider and model for anything written to bench/results/.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from dataclasses import dataclass, field
 
 try:
@@ -81,6 +82,32 @@ PRESETS = {
 }
 
 
+def _load_dotenv() -> None:
+    """Read repo-root .env into the environment, once, without a dependency.
+
+    The key lives in .env and nothing read it, so every shell that forgot to
+    `set -a; source .env` got api_key="not-needed" and a 401 three retries
+    later - reported as the model declining to answer. Existing environment
+    variables win, so an explicit export still overrides the file.
+    """
+    path = Path(__file__).resolve().parent.parent / ".env"
+    try:
+        text = path.read_text()
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        os.environ.setdefault(name.strip(), value.strip().strip("'\""))
+
+
+def _from_env(name: str) -> str | None:
+    _load_dotenv()
+    return os.environ.get(name)
+
+
 @dataclass
 class Provider:
     model: str
@@ -114,7 +141,8 @@ class Provider:
         base = self.base_url or url
         if base is None:
             raise ValueError(f"unknown preset {self.preset!r}; pass base_url")
-        key = self.api_key or (os.environ.get(env) if env else None) or "not-needed"
+        key = (self.api_key or (_from_env(env) if env else None)
+               or "not-needed")
         self.client = OpenAI(base_url=base, api_key=key)
 
     def complete(self, system: str, user: str, *,

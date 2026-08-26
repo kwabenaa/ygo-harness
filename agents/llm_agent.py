@@ -48,7 +48,28 @@ _ANSWER = re.compile(r"ANSWER:\s*(-?\d+)", re.I)
 PROVIDER_ATTEMPTS = 3
 
 
-class OutOfCredit(RuntimeError):
+class FatalProviderError(RuntimeError):
+    """A provider failure no retry and no later puzzle can survive.
+
+    These are harness configuration, not agent behaviour. Reporting one as
+    `invalid` files a config error under an agent-facing statistic - exactly
+    the conflation this script's accounting exists to prevent - and repeats it
+    once per puzzle for the rest of the run.
+    """
+
+
+class NotAuthenticated(FatalProviderError):
+    """The key is missing or rejected.
+
+    provider.py falls back to the literal string "not-needed" when the env var
+    is unset, so an unsourced .env does not fail at startup - it fails as a
+    401 on the first call, three retries deep, and lands in the `no answer`
+    column reading as though the model declined to choose. It ran clean and
+    solved nothing, which is what a genuinely bad agent looks like.
+    """
+
+
+class OutOfCredit(FatalProviderError):
     """The account or key cannot pay for more calls.
 
     Separated from every other failure because retrying is pointless and the
@@ -416,7 +437,13 @@ class LLMAgent:
                 # A spend limit is not transient. Backing off three times
                 # against a hard "no" wastes a minute and tells you nothing.
                 text = str(e)
-                if "limit exceeded" in text.lower() or "insufficient" in text.lower():
+                low = text.lower()
+                if "authentication" in low or "401" in text or "invalid api key" in low:
+                    raise NotAuthenticated(
+                        "the provider rejected the key - is OPENROUTER_API_KEY "
+                        f"exported? (.env is not loaded automatically): {text[:160]}"
+                    ) from e
+                if "limit exceeded" in low or "insufficient" in low:
                     raise OutOfCredit(
                         "the provider key is out of credit or over its spend "
                         f"limit - no further calls will succeed: {text[:160]}"

@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agents.llm_agent import NoAnswer, OutOfCredit
+from agents.llm_agent import FatalProviderError, NoAnswer
 from agents.random_legal import RandomLegal
 from engine.carddb import CardDB
 from engine.duel import Duel
@@ -198,7 +198,7 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["unchecked_plans"] = stats.unchecked_plans
         result["_trace"] = getattr(p0, "trace", [])
         result["_system"] = getattr(p0, "system", "")
-    except OutOfCredit:
+    except FatalProviderError:
         # Nothing downstream can recover from this, and every remaining puzzle
         # would fail identically. Stop the run rather than produce a column of
         # meaningless results.
@@ -328,7 +328,7 @@ def main() -> int:
     for i, puz in enumerate(puzzles, 1):
         try:
             r = run_one(puz, policy_factory(puz), args.max_steps)
-        except OutOfCredit as exc:
+        except FatalProviderError as exc:
             print(f"\nSTOPPED after {i - 1} puzzles: {exc}", file=sys.stderr)
             return 3
         trace = r.pop("_trace", [])
