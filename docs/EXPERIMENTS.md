@@ -127,6 +127,73 @@ Two consequences:
 truncated in this test. It answers easier questions than the planner so it may
 not bite in practice, but `stats.truncated` is the number to watch.
 
+## Summoning costs in the primer (2026-08-25)
+
+`Home_of_the_Fiends` (2/10, MR5). Four planners, one planning call each, same
+prompt before and after adding Tribute costs to `RULES_PRIMER`.
+
+The error the primer targets: three of four models planned "Normal Summon
+Zanki" as a free action and then attacked with La Jinn — the monster the
+Tribute consumes. The prompt already said `Zanki … Level 5`. Nothing said what
+a Level *costs*, so the datum was present and inert. That is the same failure
+shape as Main Phase 2 and as the graveyard past six cards: not bad reasoning,
+missing state or missing rule.
+
+| planner | before | after |
+|---|---|---|
+| sonnet | Zanki free -> claimed 3300, unreachable | **correct, 3700** |
+| gemini-3.7-flash | correct | **correct, 3700** |
+| qwen3.7-flash | illegal line | legal, plans 2000 vs 2400 — no lethal |
+| haiku-4.5 | illegal line | *"I cannot find a winning line"* |
+
+Nobody proposes the illegal line any more. Sonnet and gemini converged
+independently on the same solution by different orderings, which is the
+strongest signal available that it is the authored one — these puzzles ship no
+solution to diff against.
+
+**The floor rose; the ceiling did not.** The two cheap models stopped being
+wrong and started being stuck. That is worth something — the executor will
+walk a confidently wrong plan straight into a loss — but it is not a solve.
+
+**It costs latency.** sonnet 142s -> 313s (30k reasoning chars), qwen 44s ->
+94s (42k). The primer makes models think harder, and 313s of planning alone
+eats a 5-minute budget.
+
+### End to end, four runs
+
+gemini-3.7-flash, hierarchical split (*not* `--all-planner`) — the
+configuration that previously lost this solve.
+
+| run | outcome | seconds | plan steps | out of order |
+|---|---|---|---|---|
+| 1 (solo) | solved | 212 | 6/6 | 2 |
+| 2 | solved | 185 | 6/6 | 2 |
+| 3 | solved | 283 | 6/7 | 2 |
+| 4 | solved | 297 | 6/7 | 3 |
+
+4/4, mean 244s, max 297s. Runs 2-4 ran three-way parallel and run 2 was the
+*fastest* of all four, so the spread is sampling variance rather than
+contention. One solve would have been a sample; four is the fix.
+
+Under the 5-minute target — by three seconds at worst. Not comfortable.
+
+**Still unexplained:** every run replans twice and takes 2-3 steps out of
+order, including the two that executed 6/6. A plan that has to be rebuilt
+twice on a puzzle the agent then solves is not a plan being followed.
+
+### A harness bug found by trying to verify this
+
+The first end-to-end run reported *ran clean 1/1, harness fault 0, no answer
+1, solved 0*. There was no key in the shell: `provider.py` fell back to the
+literal string `"not-needed"`, failed as a 401 three retries deep, and landed
+in `no answer` — the agent-facing column meaning "the model declined to
+choose", where a config error is indistinguishable from a useless agent.
+
+Fixed in `ed2432a`: `.env` is read by `provider.py` itself, and
+`NotAuthenticated` joins `OutOfCredit` under `FatalProviderError`, which stops
+the run. The test asserts the key *resolves*; a "does not raise" test would
+have passed against the bug.
+
 ## Things tried that did not work
 
 **Unbounded planner reasoning made qwen worse.** Removing the 256-token budget
