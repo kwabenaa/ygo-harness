@@ -10,10 +10,18 @@
 
 Yu-Gi-Oh is the hardest mainstream TCG nobody has pointed an LLM at. Pokémon TCG has
 [PTCG-Bench](https://arxiv.org/html/2605.29653v1), Magic has [UrzaGPT](https://arxiv.org/pdf/2508.08382)
-and a [causal-RL gym](https://arxiv.org/html/2605.06066v1). Yu-Gi-Oh has exactly one serious AI
-attempt — [ygo-agent](https://github.com/sbl1996/ygo-agent), pure RL — which cost **32× RTX 4090 for
+and a [causal-RL gym](https://arxiv.org/html/2605.06066v1). Yu-Gi-Oh's one long-standing AI attempt is
+[ygo-agent](https://github.com/sbl1996/ygo-agent), pure RL — which cost **32× RTX 4090 for
 5 days / 100M games**, covers ~9k cards on a narrow deck set, has been dormant since July 2024, and
 produces a policy that cannot explain a single decision.
+
+**Correction, 2026-08-25.** This section used to say ygo-agent was the *only* serious attempt. That is
+no longer true. [YGO-Bench](https://github.com/erwinmsmith/YGO-Bench) vendors the same ocgcore,
+CardScripts and BabelCDB, runs puzzles and full duels with ReAct agents, and reports solve rate,
+swap-side win rate and Glicko-2. It is early — 5 commits, no paper — but the novelty claim has to
+narrow accordingly. What is still unclaimed: **regret against engine-computed achievable value** as
+the primary metric, and interruption schedules as a controlled variable. See `docs/RELATED.md` for
+the architectural comparison.
 
 The opening is that Yu-Gi-Oh's difficulty is *structurally different* from the games already
 benchmarked, in a way that plays to an LLM harness rather than against it:
