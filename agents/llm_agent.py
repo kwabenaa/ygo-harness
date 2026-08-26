@@ -395,6 +395,10 @@ class LLMAgent:
             picked = self.tracker.choose_operand(labels)
             if picked is not None and 0 <= picked < n_options:
                 self.stats.from_plan_operand += 1
+                self._note_auto(
+                    "target/cost taken from the plan, no model call",
+                    labels, picked,
+                    step=(self.tracker.active.text if self.tracker.active else ""))
                 if self.verbose:
                     print(f"  [plan operand] {labels[picked][:60]}")
                 return picked
@@ -423,6 +427,10 @@ class LLMAgent:
             picked = self.tracker.choose(menu_labels)
             if picked is not None and 0 <= picked < n_options:
                 self.stats.from_plan += 1
+                pend = self.tracker.pending()
+                self._note_auto("action taken from the plan, no model call",
+                                menu_labels, picked,
+                                step=(pend[0].text if pend else ""))
                 self.tracker.note_choice(menu_labels[picked], menu_labels)
                 if self.verbose:
                     print(f"  [plan] {menu_labels[picked][:60]}")
@@ -534,6 +542,27 @@ class LLMAgent:
         if self.verbose:
             print(f"  [chose {idx}] {reply[:100]}")
         return idx
+
+    def _note_auto(self, why: str, labels: list[str], picked: int,
+                   step: str = "") -> None:
+        """Record a decision the model was never asked about.
+
+        A transcript that only holds model calls is not a record of the duel -
+        it is a record of the expensive half. The decisions taken straight
+        from the plan are exactly the ones worth auditing, because nothing
+        reviewed them.
+        """
+        self.stats.asked += 1
+        menu = "\n".join(f"  {i}) {l}" for i, l in enumerate(labels))
+        self.trace.append({
+            "n": self.stats.asked,
+            "shown": (f"(no model call - {why})\n"
+                      + (f"plan step: {step}\n" if step else "")
+                      + f"menu:\n{menu}"),
+            "reply": f"(taken from the plan: {labels[picked]})",
+            "chose": picked,
+            "model": "-",
+        })
 
     def _labels(self, cmd, menu_names) -> list[str]:
         """The menu as plain strings, in the order the model sees it."""
