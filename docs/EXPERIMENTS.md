@@ -194,6 +194,50 @@ Fixed in `ed2432a`: `.env` is read by `provider.py` itself, and
 the run. The test asserts the key *resolves*; a "does not raise" test would
 have passed against the bug.
 
+## Making the plan execute itself (2026-08-26)
+
+`Home_of_the_Fiends`, gemini-3.7-flash, four runs each side.
+
+The tracker matched every card a step *mentioned*. "Activate Raigeki Break,
+discarding Night Assailant, destroying Dark Jeroid" therefore hit three
+options in a Main Phase menu, read as ambiguous, and went to the model. The
+better a plan described itself, the less it was used — and asking plans to
+name their targets, done earlier to *help* the tracker, was suppressing it.
+Auto-execution fired once in nineteen decisions.
+
+Steps now carry `actor` (what the step acts with) and `operands` (what it
+spends or points at), split at the first cost marker that is not "Tribute
+Summon", plus a verb so `summon: Zanki` and `set monster: Zanki` are different
+things. `_CardMenu` consults the plan before the model; `is_dead` keys on the
+actor, so a step whose *target* was listed no longer reads as available.
+
+| | before | after |
+|---|---|---|
+| solved | 4/5 | **4/4** |
+| seconds | 185, 212, 283, 297 (+185 lost) | **144, 166, 175, 186** |
+| mean | 244s | **168s** |
+| executor secs | 109 | **27-33** |
+| out of order, 4 runs | 9 | **3** |
+| decisions taken with no model call | 1 | **6-7** |
+
+**Every auto-taken decision was audited and every one was correct.** In three
+of six in run 1 the menu offered the same card under a different verb —
+`set spell/trap: Monster Reincarnation` beside `activate:` — which is
+precisely what used to read as ambiguous.
+
+**One run at 373s was not a regression.** It appeared between these two sets
+and looked like the change had tripled planner time. It was variance: gemini's
+planner output ranges 10,798-21,148 tokens across the four runs here. Refusing
+to attribute it from n=1 was correct, and n=4 settled it.
+
+**The cost has moved, not vanished.** The planner is now 110-157s of a
+144-186s run — roughly 80%. The executor is no longer worth optimising; the
+planner is the whole budget. Sub-minute is not reachable by removing executor
+calls, because there are barely any left to remove.
+
+**Not fixed:** 3 out-of-order actions remain across 4 runs, all in decisions
+the model still makes, and every run still replans twice despite solving.
+
 ## Things tried that did not work
 
 **Unbounded planner reasoning made qwen worse.** Removing the 256-token budget
