@@ -170,13 +170,23 @@ def render_side(db, b: Board, *, viewer: int, label: str) -> list[str]:
                      + "  ".join(card_label(db, c, reveal=own) for c in banished))
 
     if own:
-        # Your own Extra Deck is known to you and is usually the whole point
-        # of a line - you cannot plan a Fusion, Synchro, Xyz or Link summon
-        # against a number. Your opponent's is hidden, so they get the count.
+        # You know your own decklist. Rendering the Deck as a bare count meant
+        # a card sitting in it was invisible: on Seto VS Ishizu the agent kept
+        # planning to Normal Summon Obelisk, which is in the Deck and cannot
+        # be summoned from there, because nothing on the board said where it
+        # was. Its card text was in the corpus, so it read as playable.
+        #
+        # **Sorted by name, never engine order.** The engine holds the Deck in
+        # draw order, and printing that is handing over the next draw - a
+        # hidden-information leak that would look like a helpful listing.
+        deck = sorted((db.name(c.code) for c in b.deck if c))
+        lines.append(f"{pad}  Deck ({b.deck_count}, order unknown): "
+                     + ("  ".join(deck) or "empty"))
         extra = [c for c in b.extra if c]
-        lines.append(f"{pad}  Deck: {b.deck_count}  Extra ({len(extra)}): "
+        lines.append(f"{pad}  Extra ({len(extra)}): "
                      + ("  ".join(db.name(c.code) for c in extra) or "empty"))
     else:
+        # Your opponent's decklist is not public.
         lines.append(f"{pad}  Deck: {b.deck_count}  Extra: {b.extra_count}")
     return lines
 

@@ -262,6 +262,9 @@ class Board:
     banished: list[CardInfo | None] = field(default_factory=list)
     #: Your own Extra Deck. You know its contents; your opponent does not.
     extra: list[CardInfo | None] = field(default_factory=list)
+    #: Your own Deck. You know the *list*; you do not know the order, so this
+    #: must never be rendered in engine order - that is the draw sequence.
+    deck: list[CardInfo | None] = field(default_factory=list)
     deck_count: int = 0
     extra_count: int = 0
 
@@ -275,6 +278,7 @@ def read_board(duel, player: int) -> Board:
         grave=query_location(duel, player, LOCATION_GRAVE, LIST_FLAGS),
         banished=query_location(duel, player, LOCATION_REMOVED, LIST_FLAGS),
         extra=query_location(duel, player, LOCATION_EXTRA, LIST_FLAGS),
+        deck=query_location(duel, player, LOCATION_DECK, LIST_FLAGS),
         deck_count=count(duel, player, LOCATION_DECK),
         extra_count=count(duel, player, LOCATION_EXTRA),
     )

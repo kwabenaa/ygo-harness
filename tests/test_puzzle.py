@@ -607,3 +607,58 @@ def test_a_dead_plan_is_detected():
     # A step naming no card cannot be judged either way.
     vague = PlanTracker.parse("1. Proceed to the Battle Phase.", ["Lava Golem"])
     assert not vague.is_dead(["to end phase"])
+
+
+def test_own_deck_is_listed_but_not_in_draw_order():
+    """You know your decklist; you do not know the order.
+
+    The Deck was rendered as a bare count, so a card sitting in it was
+    invisible. On Seto VS Ishizu every plan called for Normal Summoning
+    Obelisk the Tormentor - which is in the Deck and cannot be summoned from
+    there - because nothing on the board said where it was, while its card
+    text sat in the corpus reading as playable.
+
+    The order matters as much as the contents: the engine holds the Deck in
+    draw order, so printing it verbatim would hand over the next draw. Sorted
+    output carries the list and not the sequence.
+    """
+    from engine.board import Board, CardInfo
+    from engine.carddb import CardDB
+    from engine.render import render_side
+
+    db = CardDB()
+    # Deliberately not in alphabetical order: Obelisk sits third in the engine's
+    # list, and must not come out third.
+    codes = [89631139, 89631139, 10000000, 42534368]   # BEWD, BEWD, Obelisk, Silent Doom
+    b = Board(player=0, deck=[CardInfo(code=c) for c in codes], deck_count=len(codes))
+    line = " ".join(render_side(db, b, viewer=0, label="YOU"))
+
+    assert "Obelisk the Tormentor" in line, f"deck contents hidden:\n{line}"
+    assert "order unknown" in line, "must not imply the order is meaningful"
+    names = [db.name(c) for c in codes]
+    shown = [n for n in sorted(set(names)) if n in line]
+    assert len(shown) == len(set(names)), line
+    # Sorted, so Obelisk cannot be read as "the third card you will draw".
+    assert line.index("Blue-Eyes") < line.index("Obelisk") < line.index("Silent Doom")
+
+    # The opponent's decklist is not public.
+    opp = Board(player=1, deck=[CardInfo(code=c) for c in codes], deck_count=4)
+    assert "Obelisk" not in " ".join(render_side(db, opp, viewer=0, label="OPP"))
+
+
+def test_the_planner_is_shown_what_is_legal():
+    """A plan written against the board alone can start with an illegal move.
+
+    Every Seto plan opened by summoning a card the first menu did not offer.
+    Absence from a twelve-item list is a far louder signal than inferring it
+    from where a card is not.
+    """
+    from llm.prompt import plan_prompt
+
+    out = plan_prompt("BOARD", "Win this turn.",
+                      "   0) summon: Zanki\n   1) activate: Raigeki Break")
+    assert "What you can legally do right now" in out
+    assert "summon: Zanki" in out
+    assert "cannot start" in out
+    # Still works with no menu available (e.g. a mid-turn rebuild before one).
+    assert "What you can legally do" not in plan_prompt("BOARD", "Win.")

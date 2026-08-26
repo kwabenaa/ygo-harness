@@ -214,7 +214,8 @@ If you cannot find a winning line, say so and give the best attempt you can.
 Do not choose an action yet. This is the plan only."""
 
 
-def plan_prompt(state_text: str, objective: str = "") -> str:
+def plan_prompt(state_text: str, objective: str = "",
+                actions: str = "") -> str:
     """Ask for a full line to lethal, once, before the first action.
 
     A policy asked only "which of these options" re-derives its intentions
@@ -224,7 +225,16 @@ def plan_prompt(state_text: str, objective: str = "") -> str:
     then holds the result, rather than paying for shallow thinking repeatedly.
     """
     goal = f"\nObjective: {objective}\n" if objective else ""
-    return f"{state_text}\n{goal}\n{PLAN_REQUEST}"
+    # The menu the engine is offering *right now*. Without it the plan is
+    # written against the board alone and can call for something that was
+    # never legal - on Seto VS Ishizu every plan began by Normal Summoning a
+    # monster sitting in the Deck, which the opening menu plainly did not
+    # offer. Absence from a twelve-item list is a much louder signal than
+    # inferring it from where a card is not.
+    menu = (f"\nWhat you can legally do right now:\n{actions}\n"
+            "\nLater steps will offer their own choices, but a plan whose "
+            "first step is not on this list cannot start.\n") if actions else ""
+    return f"{state_text}\n{goal}{menu}\n{PLAN_REQUEST}"
 
 
 def decision_prompt(state_text: str, *, history: list[str] | None = None,

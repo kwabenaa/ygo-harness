@@ -198,7 +198,7 @@ class LLMAgent:
 
     # ------------------------------------------------------------ planning
 
-    def _ensure_plan(self, duel, turn: int | None) -> None:
+    def _ensure_plan(self, duel, turn: int | None, actions: str = "") -> None:
         """Write a line to lethal once per turn, and keep it.
 
         Rebuilt on a turn boundary rather than per decision: a plan is the
@@ -214,7 +214,7 @@ class LLMAgent:
         provider = getattr(self, "planner", self.p)
         request = plan_prompt(
             render_state(duel, self.db, self.viewer, turn=turn, phase=None),
-            self.objective)
+            self.objective, actions)
         try:
             self.plan = provider.complete(self.system, request).strip()
             # The planning call is the longest single call of a duel, and when
@@ -276,7 +276,8 @@ class LLMAgent:
         self._plan_turn = -1          # force _ensure_plan to rebuild
         dead = self.plan
         self.plan = ""
-        self._ensure_plan(duel, turn)
+        self._ensure_plan(duel, turn, "\n".join(
+            f"  {i:>2}) {label}" for i, label in enumerate(menu_labels)))
         if not self.plan:
             self.plan = dead          # a failed rebuild is worse than a stale plan
             self.tracker = PlanTracker.parse(
@@ -354,7 +355,10 @@ class LLMAgent:
         # the prompt without bound.
         events = self.history[-self.LOG_LIMIT:] + recent_events(
             duel, self.db, self.viewer, limit=self.LOG_LIMIT)
-        self._ensure_plan(duel, turn)
+        # The plan is written against the menu that is open at the time, so
+        # its first step is something the engine will actually accept.
+        self._ensure_plan(
+            duel, turn, render_actions(self.db, cmd, names=menu_names))
         menu_labels = self._labels(cmd, menu_names)
 
         # Carry out the plan rather than re-deciding it. When the next step
