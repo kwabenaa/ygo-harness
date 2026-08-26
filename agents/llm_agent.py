@@ -104,6 +104,13 @@ class _CardMenu:
     #: its own only monster on a puzzle it had previously solved.
     deliberate = True
 
+    #: ...but when the plan *named* the discard or the target, there is
+    #: nothing left to deliberate about. These menus were 12 of 19 model calls
+    #: on a measured run, so they are where the time is. Consulting the plan
+    #: first keeps the safety property - we still never take an action the
+    #: plan did not name - and only pays for a call when it did not.
+    operand_menu = True
+
     def __init__(self, sc, db):
         self.sc, self.db = sc, db
 
@@ -169,6 +176,11 @@ class Stats:
     forced: int = 0
     #: Decisions carried out straight from the plan, with no model call.
     from_plan: int = 0
+    #: Sub-decisions (discard, tribute, target) answered from the plan's own
+    #: wording, with no model call. Counted apart from `from_plan` because
+    #: they are a different claim: not "the plan chose the action" but "the
+    #: plan already said what to aim it at".
+    from_plan_operand: int = 0
     #: Times the plan died and was rebuilt from the board.
     replans: int = 0
     #: Turns played with no plan at all. Never silent: a missing plan is not a
@@ -370,6 +382,22 @@ class LLMAgent:
         if n_options <= 1:
             self.stats.forced += 1
             return 0
+
+        # A sub-decision the plan already answered. Checked before the event
+        # log and before the planning call, because none of that work feeds a
+        # decision we are not going to ask about.
+        #
+        # `note_choice` is deliberately not called: this is not a step of the
+        # plan, it is the inside of one, and marking a step done here would
+        # tick off the next pending step instead.
+        if getattr(cmd, "operand_menu", False):
+            labels = self._labels(cmd, menu_names)
+            picked = self.tracker.choose_operand(labels)
+            if picked is not None and 0 <= picked < n_options:
+                self.stats.from_plan_operand += 1
+                if self.verbose:
+                    print(f"  [plan operand] {labels[picked][:60]}")
+                return picked
 
         # Everything done this turn, not the last six. Over a twenty-decision
         # turn a six-item window loses sight of what has already been tried,

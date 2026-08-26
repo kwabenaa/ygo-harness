@@ -176,6 +176,7 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result["no_plan"] = stats.no_plan
             result["forced"] = stats.forced
             result["from_plan"] = stats.from_plan
+            result["from_plan_operand"] = stats.from_plan_operand
             result["replans"] = stats.replans
         # Token accounting per role. Cost per puzzle is a reported metric, and
         # the two roles have very different shapes: the planner's output is
@@ -190,6 +191,7 @@ def run_one(puzzle, make_policy, max_steps: int = MAX_STEPS) -> dict:
             result[f"{role}_cached"] = u.cached_tokens
             result[f"{role}_write"] = u.cache_write_tokens
             result[f"{role}_out"] = u.completion_tokens
+            result[f"{role}_secs"] = round(u.seconds, 1)
             tracker = getattr(p0, "tracker", None)
             if tracker is not None:
                 result["skipped_ahead"] = tracker.skipped_ahead
@@ -371,8 +373,10 @@ def main() -> int:
         # model - and it looks exactly like an agent playing badly.
         print(f"  re-asked for a bare number {forced}")
         auto = sum(r.get("from_plan", 0) for r in results)
-        if auto:
+        sub = sum(r.get("from_plan_operand", 0) for r in results)
+        if auto or sub:
             print(f"  carried out from the plan {auto}   (no model call)")
+            print(f"  targets/costs from the plan {sub}   (no model call)")
         replans = sum(r.get("replans", 0) for r in results)
         if replans:
             print(f"  plan died and was rebuilt {replans}")
@@ -398,13 +402,20 @@ def main() -> int:
         tok[role] = {k: sum(r.get(f"{role}_{n}", 0) for r in results)
                      for k, n in (("calls", "llm_calls"), ("in", "in"),
                                   ("cached", "cached"), ("write", "write"),
-                                  ("out", "out"))}
+                                  ("out", "out"), ("secs", "secs"))}
     if any(v["calls"] for v in tok.values()):
         print(f"\n  {'role':9} {'calls':>6} {'in':>9} {'cached':>8} "
-              f"{'written':>8} {'out':>9}")
+              f"{'written':>8} {'out':>9} {'secs':>7}")
         for role, v in tok.items():
             print(f"  {role:9} {v['calls']:>6} {v['in']:>9,} {v['cached']:>8,} "
-                  f"{v['write']:>8,} {v['out']:>9,}")
+                  f"{v['write']:>8,} {v['out']:>9,} {v['secs']:>7.0f}")
+        # Wall clock is not the sum of these: engine work and parsing sit
+        # outside the provider calls. The gap is the harness's own time.
+        wall = sum(r.get("seconds", 0) for r in results)
+        llm = sum(v["secs"] for v in tok.values())
+        print(f"  {'':9} {'':>6} {'':>9} {'':>8} {'':>8} {'in LLM calls':>9} "
+              f"{llm:>7.0f}  of {wall:.0f}s wall ({llm / wall:.0%})"
+              if wall else "")
 
     if unhandled_total:
         print("\n  unhandled decision messages (each one is a missing decoder):")

@@ -559,9 +559,21 @@ def test_plan_chooses_only_when_unambiguous():
     tracker = PlanTracker.parse(plan, cards)
 
     assert tracker.choose(["activate: Fiend's Sanctuary", "to battle phase"]) == 0
-    # Two ways to play the same card is a real choice, not a formality.
+
+    # Activating and setting the same card are different plays, and the step
+    # says which one. This assertion used to expect None: before steps carried
+    # a verb the tracker could not tell them apart, so it declined and paid for
+    # a model call to be told what the plan already said. Declining here was
+    # caution about a thing that was never ambiguous - the safety property is
+    # that we never take an action the plan did not name, and "set" is not
+    # named anywhere in this plan.
     assert tracker.choose(["activate: Fiend's Sanctuary",
-                           "set spell/trap: Fiend's Sanctuary"]) is None
+                           "set spell/trap: Fiend's Sanctuary"]) == 0
+
+    # Genuinely ambiguous: same card, same verb, two ways to reach it. The
+    # plan does not distinguish them, so the model must.
+    assert tracker.choose(["activate: Fiend's Sanctuary",
+                           "activate: Fiend's Sanctuary"]) is None
     assert tracker.choose(["to battle phase", "to end phase"]) is None
 
     # Nothing left to do means nothing to carry out.
@@ -702,3 +714,159 @@ def test_a_verbose_answer_is_still_readable():
     assert agent._read_choice(
         "I'll start by clearing the opponent's board using my removal", 6) is None
     assert agent.stats.unparseable == before + 1
+
+
+def test_step_separates_what_it_uses_from_what_it_spends():
+    """A step names three cards and only one of them is the action.
+
+    This is the bug that kept the plan advisory. "Activate Raigeki Break,
+    discarding Night Assailant, destroying Dark Jeroid" hits three options in
+    a Main Phase menu when matched card-by-card, reads as ambiguous, and goes
+    to the model - so the more precisely a plan described itself, the less it
+    was ever used.
+    """
+    from agents.plan_tracker import PlanTracker
+
+    cards = ["Raigeki Break", "Night Assailant", "Dark Jeroid", "Zanki",
+             "La Jinn the Mystical Genie of the Lamp"]
+    tracker = PlanTracker.parse(
+        "1. Activate Raigeki Break, discarding Night Assailant, "
+        "destroying Dark Jeroid.\n"
+        "2. Tribute Summon Zanki by Tributing "
+        "La Jinn the Mystical Genie of the Lamp.",
+        cards)
+
+    one, two = tracker.steps
+    assert one.actor == ("Raigeki Break",)
+    assert set(one.operands) == {"Night Assailant", "Dark Jeroid"}
+
+    # "Tribute Summon" is the action, not the cost - the split has to happen
+    # at the second "Tribut-", or the step loses its own actor.
+    assert two.actor == ("Zanki",), two.actor
+    assert two.operands == ("La Jinn the Mystical Genie of the Lamp",)
+
+    # The whole point: a Main Phase menu offering all three now resolves.
+    menu = ["activate: Raigeki Break", "summon: Night Assailant",
+            "set monster: Night Assailant", "to battle phase"]
+    assert tracker.choose(menu) == 0
+
+
+def test_named_operands_are_carried_out_without_a_model_call():
+    """The discard and target menus are where most of the calls went.
+
+    Twelve of nineteen calls in a measured run were the executor answering
+    sub-decisions, at 9s each. When the plan names the answer there is nothing
+    left to decide.
+    """
+    from agents.plan_tracker import PlanTracker
+
+    cards = ["Monster Reincarnation", "Lava Golem", "Dark Necrofear"]
+    tracker = PlanTracker.parse(
+        "1. Activate Monster Reincarnation, discarding Lava Golem, "
+        "adding Dark Necrofear from the GY to hand.", cards)
+
+    # Nothing is active until an action has actually been taken.
+    assert tracker.choose_operand(["Lava Golem", "Zanki"]) is None
+
+    menu = ["activate: Monster Reincarnation", "to battle phase"]
+    assert tracker.choose(menu) == 0
+    tracker.note_choice(menu[0], menu)
+
+    # The discard menu lists the hand; only one operand is in it.
+    assert tracker.choose_operand(["Zanki", "Lava Golem", "Upstart Goblin"]) == 1
+    # The add-from-GY menu lists the GY; the spent operand is not reused.
+    assert tracker.choose_operand(["Dark Necrofear", "Lava Golem"]) == 0
+    # Both operands spent - anything further is not something the plan named.
+    assert tracker.choose_operand(["Zanki", "Upstart Goblin"]) is None
+
+
+def test_a_step_is_dead_on_its_action_not_on_a_mentioned_card():
+    """is_dead used to read a step as alive because its *target* was listed.
+
+    That is how a plan stayed "alive" while the thing it wanted to do was
+    unavailable, and it is the likeliest source of the replans seen on every
+    run of Home_of_the_Fiends.
+    """
+    from agents.plan_tracker import PlanTracker
+
+    tracker = PlanTracker.parse(
+        "1. Activate Raigeki Break, destroying Dark Jeroid.",
+        ["Raigeki Break", "Dark Jeroid"])
+
+    # Dark Jeroid is named, but nothing here activates Raigeki Break.
+    assert tracker.is_dead(["summon: Dark Jeroid", "to end phase"]) is True
+    assert tracker.is_dead(["activate: Raigeki Break"]) is False
+
+
+def test_the_agent_answers_a_named_discard_without_calling_the_model():
+    """Assert on the positive: the mechanism must actually fire.
+
+    A test that only proved "no wrong action was taken" would pass against
+    auto-execution that never triggers at all - which is what the tracker did
+    before steps carried roles, at 1 auto-taken decision in 19.
+    """
+    from agents.llm_agent import LLMAgent, _CardMenu
+    from agents.plan_tracker import PlanTracker
+    from engine.carddb import CardDB
+
+    class CountingProvider:
+        model = "stub"
+
+        def __init__(self):
+            self.calls = 0
+
+        def complete(self, system, user, **kw):
+            self.calls += 1
+            return "0"
+
+    provider = CountingProvider()
+    agent = LLMAgent(provider, CardDB(), [], system="stub")
+    agent.tracker = PlanTracker.parse(
+        "1. Activate Monster Reincarnation, discarding Lava Golem.",
+        ["Monster Reincarnation", "Lava Golem"])
+
+    menu = ["activate: Monster Reincarnation", "to end phase"]
+    agent.tracker.note_choice(menu[0], menu)
+
+    class Discard:
+        operand_menu = True
+        deliberate = True
+
+        def actions(self):
+            return [(99, 0, None), (99, 1, None)]
+
+    # A card menu whose labels the agent builds itself; stub _labels so the
+    # test exercises the routing rather than the card database.
+    agent._labels = lambda cmd, names: ["Zanki", "Lava Golem"]
+
+    assert agent._ask(None, Discard(), 2) == 1
+    assert provider.calls == 0, "asked the model something the plan already said"
+    assert agent.stats.from_plan_operand == 1
+
+
+def test_a_discard_the_plan_did_not_name_is_not_auto_taken():
+    """The safety property, unchanged: never commit to an unnamed action.
+
+    Scoped to the gate's own decision rather than a full `_ask`. Past the gate
+    the code builds an event log and a board render, which needs a real duel;
+    stubbing one out here would test the stub. The early return above it is
+    covered by the positive test - it fires only when this is not None.
+    """
+    from agents.plan_tracker import PlanTracker
+
+    tracker = PlanTracker.parse(
+        "1. Activate Monster Reincarnation.", ["Monster Reincarnation"])
+    menu = ["activate: Monster Reincarnation", "to end phase"]
+    tracker.note_choice(menu[0], menu)
+
+    # The step named no cost, so nothing in this menu is a plan instruction.
+    assert tracker.choose_operand(["Zanki", "Lava Golem"]) is None
+
+    # And a step that names two, both offered at once, is ambiguous - the
+    # plan does not say which menu is which.
+    two = PlanTracker.parse(
+        "1. Activate Raigeki Break, discarding Zanki, destroying Lava Golem.",
+        ["Raigeki Break", "Zanki", "Lava Golem"])
+    m2 = ["activate: Raigeki Break", "to end phase"]
+    two.note_choice(m2[0], m2)
+    assert two.choose_operand(["Zanki", "Lava Golem"]) is None

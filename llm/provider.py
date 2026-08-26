@@ -15,6 +15,7 @@ pin an exact provider and model for anything written to bench/results/.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from dataclasses import dataclass, field
 
@@ -36,9 +37,14 @@ class Usage:
     #: expensive than not caching - worth being able to see.
     cache_write_tokens: int = 0
     completion_tokens: int = 0
+    #: Wall-clock seconds spent inside provider calls for this role. Token
+    #: counts do not answer "where did the four minutes go" - a planner call
+    #: and an executor call differ by more than their token totals suggest.
+    seconds: float = 0.0
 
-    def add(self, resp) -> None:
+    def add(self, resp, seconds: float = 0.0) -> None:
         self.calls += 1
+        self.seconds += seconds
         u = getattr(resp, "usage", None)
         if not u:
             return
@@ -164,6 +170,7 @@ class Provider:
               "cache_control": {"type": "ephemeral"}}]
             if self.cache_system else system
         )
+        started = time.perf_counter()
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=[
@@ -174,7 +181,7 @@ class Provider:
             max_tokens=self.max_tokens,
             extra_body=body or None,
         )
-        self.usage.add(resp)
+        self.usage.add(resp, time.perf_counter() - started)
         #: "length" means the model was cut off mid-thought rather than
         #: choosing to stop, which is what an empty reply usually means here.
         self.last_finish_reason = getattr(resp.choices[0], "finish_reason", None)
