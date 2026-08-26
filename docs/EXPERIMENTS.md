@@ -99,6 +99,34 @@ is what decides cost.
 
 ---
 
+## What "default" reasoning actually means (2026-08-25)
+
+qwen3.7-flash, same planning question, only `max_tokens` changed. No
+`reasoning` block — the model's own default.
+
+| `max_tokens` | output tokens | reasoning chars | finish reason |
+|---|---|---|---|
+| 2,048 | 2,050 | 7,052 | **length** — cut off |
+| 8,192 | 8,194 | 29,027 | **length** — cut off |
+| 32,768 | 3,024 | 11,471 | **stop** — finished on its own |
+
+**Default is adaptive and self-terminating, not unbounded.** Given room it
+stopped at 3,024 tokens. Below that it does not think less — it is truncated
+mid-thought and returns *empty content*, which is worse than a small explicit
+budget because you get no answer at all rather than a shallow one.
+
+Two consequences:
+
+- `max_tokens` is the real limiter, not the reasoning setting. Raising it from
+  2,048 to 32,768 is what let per-puzzle output grow to 112k-154k tokens.
+- The figure recorded in `llm/models.yaml` as "default -> 1,331 output tokens"
+  was measured under a 2,048 cap. It was a truncation artifact, not the
+  model's natural length.
+
+**Open, and worth fixing:** the executor runs at `max_tokens: 8192`, which
+truncated in this test. It answers easier questions than the planner so it may
+not bite in practice, but `stats.truncated` is the number to watch.
+
 ## Things tried that did not work
 
 **Unbounded planner reasoning made qwen worse.** Removing the 256-token budget
