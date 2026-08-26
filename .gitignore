@@ -30,6 +30,8 @@ engine/lib/LUA_COMMIT
 data/BabelCDB/
 data/CardScripts/
 data/Puzzles/
+# The rulebook PDF is fetched, not vendored. Its extracted text lives in
+# docs/rules/rulebook.md, which IS committed.
 data/rules/
 data/DATA_COMMITS
 
