@@ -50,6 +50,24 @@ The structure of a turn, which is one-way:
 - Special Summons are separate from your one Normal Summon and are governed by
   each card's own text.
 
+Summoning, which is where plans most often go wrong:
+
+- **One Normal Summon or Set per turn, total.** Not one of each — one, either.
+- A monster Level 4 or lower needs no Tribute. **Level 5 or 6 costs 1 Tribute.
+  Level 7 or higher costs 2.** You Tribute monsters you control.
+- **A Tribute Summon *is* your Normal Summon, and it trades monsters rather
+  than adding them.** Tributing your only monster to summon a bigger one
+  leaves you with one monster, not two — so it does not increase how many
+  attackers you have, and often reduces your total damage. Check that before
+  planning a Tribute Summon as part of a lethal line.
+- Special Summons do not use your Normal Summon and are not limited by it.
+  Each card states its own conditions, and a monster that "Cannot be Normal
+  Summoned" can only arrive the way its text describes.
+- Setting a monster is not a Summon. A Set monster is face-down and cannot
+  attack this turn.
+- Each monster may declare one attack per turn. Once it has declared, it
+  cannot attack again even if the battle is cancelled.
+
 Notation:
 - M: monster zones, S: spell/trap zones.
 - "Roze 1500/1500 ATK" is face-up in ATTACK position, 1500 ATK / 1500 DEF.

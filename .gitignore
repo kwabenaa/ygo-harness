@@ -30,6 +30,7 @@ engine/lib/LUA_COMMIT
 data/BabelCDB/
 data/CardScripts/
 data/Puzzles/
+data/rules/
 data/DATA_COMMITS
 
 # duel transcripts
