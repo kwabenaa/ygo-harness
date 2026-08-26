@@ -176,4 +176,8 @@ def from_config(role: str, path: str | None = None, **overrides) -> "Provider":
     reasoning = spec.pop("reasoning", None)
     extra = {"reasoning": reasoning} if reasoning else {}
     spec.update(overrides)
+    # An explicit extra_body override replaces the yaml's `reasoning` block
+    # rather than colliding with it - passing both is a TypeError, and the
+    # caller asking for a specific budget should win.
+    extra = spec.pop("extra_body", extra)
     return Provider(extra_body=extra, **spec)

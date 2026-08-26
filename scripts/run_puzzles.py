@@ -241,6 +241,12 @@ def main() -> int:
                          "like comparison. The executor keeps its reasoning-off "
                          "setting; the planner keeps whatever the model does by "
                          "default")
+    ap.add_argument("--reasoning-budget", type=int, default=None, metavar="N",
+                    help="cap thinking at N tokens per call. Must be well under "
+                         "the role's max_tokens - a budget larger than the "
+                         "output cap is a hard 400 on some providers. Omit for "
+                         "the model's own default, which self-terminates but "
+                         "runs long")
     ap.add_argument("--no-plan", action="store_true",
                     help="skip the per-turn planning call")
     ap.add_argument("--all-planner", action="store_true",
@@ -272,6 +278,9 @@ def main() -> int:
         # share a prompt cache, so a comparison that changes only the planner
         # would also be changing the cache behaviour underneath it.
         override = {"model": args.model} if args.model else {}
+        if args.reasoning_budget:
+            override["extra_body"] = {
+                "reasoning": {"max_tokens": args.reasoning_budget}}
 
         def build(player: int):
             if player == 1:
