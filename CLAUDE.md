@@ -60,6 +60,8 @@ tests** — see trap 11.
 | `scripts/deliberation_report.py` | planner/executor split, measured on free random duels |
 | `scripts/lethal_audit.py` | battle-phase misses, with the seed+turn to go watch |
 | `docs/PLAN.md`, `DECISIONS.md` | plan, and the record of decisions/deferrals |
+| `docs/EXPERIMENTS.md` | what has actually been measured, and what failed |
+| `docs/RELATED.md` | YGO-Bench and the other harnesses; what we do differently |
 
 ## Traps
 
@@ -220,6 +222,40 @@ error.
     filters on `TYPE_NORMAL`; the first puzzle run reported Blue-Eyes White
     Dragon and Dark Magician as missing before it did.
 
+23. **An explicit reasoning budget must clear the model's own output cap.**
+    The agent passed `reasoning: {max_tokens: 1024}` while the executor capped
+    output at 64, and Alibaba rejected it outright — *"max_completion_tokens
+    [64] must be greater than thinking_budget [1024]"*. mistral-nemo had
+    silently ignored the parameter because it does not think at all, so the
+    bug only appeared when both roles moved to a reasoning model. Thinking is
+    now left at each model's default; a budget has to be re-checked against
+    every model you switch to, and getting it wrong is a hard 400 rather than
+    a degradation. `reasoning: {max_tokens: 0}` is also a 400 — use
+    `{enabled: false}` if you ever need thinking off.
+
+24. **Caching needs a breakpoint, and the threshold is per-model.** Nothing is
+    written to cache unless the request carries `cache_control`
+    (`Provider.cache_system` sends it on the system prompt). Even then,
+    measured through OpenRouter: qwen caches at every size we use,
+    gemini-3.7-flash never cached at any size tested, and haiku-4.5 cached
+    nothing below ~5k tokens but did at ~9.9k. A puzzle system prompt is
+    1,500–8,400 tokens, so most puzzle runs cache nothing at all on two of the
+    three. Read `usage.cached_tokens`; a zero column is the only way to notice.
+
+25. **The Deck is stored in draw order.** Rendering `b.deck` verbatim hands
+    the agent its next draw — a hidden-information leak that looks like a
+    helpful listing. `render_side` sorts by name and labels it
+    `order unknown`. You know your own decklist in this game, so listing the
+    contents is correct; listing the *sequence* is not.
+
+26. **A plan is written against whatever the planning prompt contains.** For a
+    long time that was the board and the objective, with no action menu — so
+    every Seto VS Ishizu plan opened by Normal Summoning Obelisk, a card
+    sitting in the Deck, and `summon: Obelisk` was never offered in any of 21
+    menus. `plan_prompt` now takes the live menu. When a plan calls for
+    something impossible, check what the planner was shown before concluding
+    anything about the model.
+
 ## Models
 
 See `llm/models.yaml`. Two findings worth not re-deriving:
@@ -277,6 +313,19 @@ See `llm/models.yaml`. Two findings worth not re-deriving:
   than solvable puzzles — `Tutorial_Ruling_Pain_Lanius` exists to show that a
   play is *illegal* — and the collection's own README says tutorials may be
   unsolvable. Exclude them when measuring; `Puzzle.is_tutorial` marks them.
+
+- **Most "the agent reasoned badly" findings are the harness withholding
+  state.** This has now happened five times in a row: the phase of the turn,
+  the graveyard past six cards, the banished pile, the Extra Deck, and the
+  Deck. Each presented as a reasoning failure, each was information the engine
+  had and the harness did not pass on. **Before concluding anything about how
+  a model thinks, print exactly what it was sent.** The transcript
+  (`--transcript`) exists for this.
+
+- **Model measurements go in `docs/EXPERIMENTS.md`, with their conditions.**
+  A solve rate without the model, the puzzle and the sample size is not a
+  result — and almost every number in there is n=1, which the file says out
+  loud because the tables otherwise read like a ranking.
 
 - **Research findings go back into the docs in the same change that found
   them.** `docs/PLAN.md` for anything that moves a milestone or invalidates
