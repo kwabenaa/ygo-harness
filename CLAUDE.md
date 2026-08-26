@@ -57,6 +57,7 @@ tests** — see trap 11.
 | `scripts/verify_yrp.py` | replays a `.yrp` through EDOPro's own core/cards/scripts |
 | `scripts/run_puzzles.py` | runs the puzzle collection; separates harness faults from losses |
 | `scripts/coverage_report.py` | what the core can report vs. what we use |
+| `scripts/compare_models.py` | several models over the same puzzles, in parallel |
 | `scripts/deliberation_report.py` | planner/executor split, measured on free random duels |
 | `scripts/lethal_audit.py` | battle-phase misses, with the seed+turn to go watch |
 | `docs/PLAN.md`, `DECISIONS.md` | plan, and the record of decisions/deferrals |
@@ -321,6 +322,15 @@ See `llm/models.yaml`. Two findings worth not re-deriving:
   had and the harness did not pass on. **Before concluding anything about how
   a model thinks, print exactly what it was sent.** The transcript
   (`--transcript`) exists for this.
+
+- **Fan out anything independent.** Puzzle runs, model comparisons and probe
+  calls are separate processes against separate providers; nothing shares
+  state. Sequential runs cost twenty minutes for what takes five, and the one
+  thing that used to force serialisation was a bug - `--transcript` names its
+  file after the puzzle, so a fan-out had every model clobbering the same
+  path. `scripts/compare_models.py` fans out and gives each model its own
+  transcript directory. Ad-hoc probes should be concurrent too: three API
+  calls to compare settings is a thread pool, not a for-loop.
 
 - **Model measurements go in `docs/EXPERIMENTS.md`, with their conditions.**
   A solve rate without the model, the puzzle and the sample size is not a

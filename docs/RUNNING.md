@@ -53,21 +53,20 @@ five separate "the model reasoned badly" findings.
 prompt cache, so changing only the planner would also change cache behaviour
 underneath the comparison.
 
-**Run comparisons in parallel** — the runs are independent processes and six
-concurrent is nothing:
+Use the tool — it fans out and tabulates:
 
 ```bash
-for m in qwen/qwen3.7-flash google/gemini-3.7-flash anthropic/claude-haiku-4.5; do
-  tag=$(echo "$m" | tr '/.' '__')
-  python scripts/run_puzzles.py --rule 5 --agent llm --model "$m" \
-    --filter Home_of_the_Fiends --json "out/$tag.json" &
-done; wait
+python scripts/compare_models.py --filter Home_of_the_Fiends --transcript
 ```
 
-**But not with `--transcript`.** The transcript filename comes from the
-*puzzle*, not the model, so a fan-out has every run writing to
-`runs/puzzles/<puzzle>.txt` and clobbering the others. Either run sequentially
-when you want transcripts, or give each model its own `--transcript` directory.
+It runs every model concurrently and gives each its own transcript directory.
+That last part matters: `run_puzzles.py --transcript` names its file after the
+*puzzle*, so a hand-rolled fan-out has every model writing to
+`runs/puzzles/<puzzle>.txt` and clobbering the others. That bug is the only
+reason comparisons were ever run sequentially, and it cost twenty minutes for
+what takes five.
+
+`--jobs N` bounds concurrency if a provider starts rate-limiting.
 
 Record what you find in `docs/EXPERIMENTS.md`, with the conditions and the
 sample size.
