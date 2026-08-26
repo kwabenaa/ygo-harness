@@ -37,6 +37,10 @@ from llm.events import recent as recent_events
 from llm.prompt import decision_prompt, plan_prompt, system_prompt
 
 _NUM = re.compile(r"-?\d+")
+#: The marker the prompt asks for. Checked before anything else, because a
+#: model that explains itself first will have numbers scattered through the
+#: prose ("Level 4", "1800 ATK") and the first one is rarely the answer.
+_ANSWER = re.compile(r"ANSWER:\s*(-?\d+)", re.I)
 
 #: How many times to re-ask when the provider itself fails. Network trouble is
 #: not the model failing, and killing a half-hour run on one dropped
@@ -452,11 +456,14 @@ class LLMAgent:
             if self.verbose:
                 print(f"  [no usable index in {reply[:60]!r}; re-asking]")
             try:
+                # No reasoning override here. An explicit budget is rejected
+                # outright by some models (Sonnet 5 returns 400 for
+                # budget_tokens), and a re-ask that errors is worse than a
+                # verbose answer.
                 reply = self.p.complete(
                     self.system,
-                    body + f"\n\nReply with ONLY a single number from 0 to "
-                           f"{n_options - 1}. No words, no explanation.",
-                    reasoning={"max_tokens": 128},
+                    body + f"\n\nAnswer now. Your entire reply must be one "
+                           f"line:\nANSWER: <number from 0 to {n_options - 1}>",
                 )
             except Exception as e:
                 raise NoAnswer(f"re-ask failed: {type(e).__name__}: {e}") from e
@@ -489,18 +496,36 @@ class LLMAgent:
         return out
 
     def _read_choice(self, reply: str, n_options: int) -> int | None:
-        """The chosen index, or None when the reply does not contain one."""
-        m = _NUM.search(reply or "")
-        if not m:
-            self.stats.unparseable += 1
-            return None
-        idx = int(m.group())
-        if not (0 <= idx < n_options):
+        """The chosen index, or None when the reply does not contain one.
+
+        Three passes, most trustworthy first. The marker the prompt asked for;
+        then the last in-range number, because a model that reasons in prose
+        states its conclusion at the end; then the first in-range number. The
+        old behaviour - first integer anywhere - picked "4" out of "Level 4
+        Cyberse monster" as readily as out of an answer.
+        """
+        text = reply or ""
+        m = _ANSWER.search(text)
+        if m:
+            idx = int(m.group(1))
+            if 0 <= idx < n_options:
+                return idx
             self.stats.out_of_range += 1
             if self.verbose:
-                print(f"  [out of range: {idx} not in 0..{n_options - 1}]")
+                print(f"  [ANSWER: {idx} not in 0..{n_options - 1}]")
             return None
-        return idx
+
+        found = [int(x) for x in _NUM.findall(text)]
+        in_range = [i for i in found if 0 <= i < n_options]
+        if in_range:
+            return in_range[-1]
+        if found:
+            self.stats.out_of_range += 1
+            if self.verbose:
+                print(f"  [no in-range number among {found[:6]}]")
+            return None
+        self.stats.unparseable += 1
+        return None
 
     # ------------------------------------------------------------ policy
 

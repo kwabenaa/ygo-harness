@@ -248,12 +248,18 @@ def decision_prompt(state_text: str, *, history: list[str] | None = None,
     if history:
         parts.append("RECENT EVENTS\n" + "\n".join(f"  {h}" for h in history[-8:]))
     parts.append(state_text)
+    # Ask for a marker, not a bare number. "Reply with only a number" is an
+    # instruction some models simply do not follow: Claude Sonnet 5 answered a
+    # menu with "I'll start by clearing the opponent's board using my removal"
+    # - prose, no digits anywhere - and the parser had nothing to find. A
+    # trailing marker survives a model that wants to explain itself first.
     if n_options:
-        # Stating the range explicitly: models otherwise return indices past
-        # the end of the menu, which costs a wasted call and a fallback.
-        parts.append(f"Reply with only a number from 0 to {n_options - 1}.")
+        parts.append(
+            f"Choose one action, {0} to {n_options - 1}.\n"
+            f"End your reply with exactly this line and nothing after it:\n"
+            f"ANSWER: <number>")
     else:
-        parts.append("Reply with only the number of your chosen action.")
+        parts.append("End your reply with exactly:\nANSWER: <number>")
     return "\n\n".join(parts)
 
 

@@ -662,3 +662,43 @@ def test_the_planner_is_shown_what_is_legal():
     assert "cannot start" in out
     # Still works with no menu available (e.g. a mid-turn rebuild before one).
     assert "What you can legally do" not in plan_prompt("BOARD", "Win.")
+
+
+def test_a_verbose_answer_is_still_readable():
+    """Reading the first integer in a reply is not good enough.
+
+    Claude Sonnet 5 answered a menu with "I'll start by clearing the
+    opponent's board using my removal" - prose, no digits at all - after
+    12,575 characters of reasoning, and both puzzles were abandoned as
+    `invalid`. Models that explain themselves also scatter numbers through the
+    explanation, where the first one ("Level 4 Cyberse") is rarely the answer.
+
+    So: the marker the prompt asks for, then the last in-range number, then
+    the first. Never the first integer anywhere.
+    """
+    from agents.llm_agent import LLMAgent
+    from engine.carddb import CardDB
+
+    class Stub:
+        model = "stub"
+        def complete(self, *a, **k):
+            return "0"
+
+    agent = LLMAgent(Stub(), CardDB(), [], system="stub")
+
+    # The marker wins even with other numbers in the prose.
+    assert agent._read_choice(
+        "Zanki is Level 4 with 1500 ATK, so I will summon it.\nANSWER: 2", 6) == 2
+
+    # No marker: the conclusion is at the end, not the beginning.
+    assert agent._read_choice(
+        "Level 4 Cyberse, 1800 ATK... therefore I choose 3", 6) == 3
+
+    # An out-of-range marker is a refusal, not something to salvage.
+    assert agent._read_choice("ANSWER: 11", 6) is None
+
+    # Prose with no digits at all is unreadable, and must say so.
+    before = agent.stats.unparseable
+    assert agent._read_choice(
+        "I'll start by clearing the opponent's board using my removal", 6) is None
+    assert agent.stats.unparseable == before + 1
